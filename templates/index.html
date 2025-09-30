@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}OCR Editor - File Browser{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <h2><i class="fas fa-folder-open"></i> Available Files</h2>
+        <div class="file-list">
+            {% if files_by_folder %}
+                <div class="accordion" id="folderAccordion">
+                    {% for folder_name, files in files_by_folder.items() %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="heading{{ loop.index }}">
+                            <button class="accordion-button" type="button" data-bs-toggle="collapse" 
+                                    data-bs-target="#collapse{{ loop.index }}" aria-expanded="true">
+                                <i class="fas fa-folder me-2"></i>
+                                {{ folder_name }} <span class="badge bg-secondary ms-2">{{ files|length }} pages</span>
+                            </button>
+                        </h2>
+                        <div id="collapse{{ loop.index }}" class="accordion-collapse collapse show">
+                            <div class="accordion-body">
+                                <div class="row">
+                                    {% for file in files %}
+                                    <div class="col-md-6 col-lg-4 mb-2">
+                                        <div class="card card-hover" style="cursor: pointer;" 
+                                             onclick="loadFile('{{ file.json_path }}', '{{ file.image_path }}')">
+                                            <div class="card-body p-2">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <small class="text-muted">Page {{ file.page_num or loop.index }}</small>
+                                                    <i class="fas fa-file-alt text-primary"></i>
+                                                </div>
+                                                <h6 class="card-title small mb-1">{{ file.name }}</h6>
+                                                <p class="card-text text-muted" style="font-size: 0.75rem;">
+                                                    {{ file.json_path.split('/')[-1] }}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> No files found in the configured data directory.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <h2><i class="fas fa-upload"></i> Upload Files</h2>
+        <div class="file-drop-zone" id="dropZone">
+            <i class="fas fa-cloud-upload-alt fa-3x mb-3 text-muted"></i>
+            <h5>Drop JSON and Image files here</h5>
+            <p class="text-muted">or click to select files</p>
+            <input type="file" id="fileInput" multiple accept=".json,.png,.jpg,.jpeg" style="display: none;">
+        </div>
+        
+        <div class="mt-3">
+            <h6>Instructions:</h6>
+            <ul class="small text-muted">
+                <li>Upload both a JSON file and its corresponding image</li>
+                <li>JSON should contain bounding box data with coordinates [x1, y1, x2, y2]</li>
+                <li>Supported image formats: PNG, JPG, JPEG</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<div class="loading d-none" id="loadingDiv">
+    <i class="fas fa-spinner fa-spin fa-2x"></i>
+    <p>Loading file...</p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let uploadedFiles = {json: null, image: null};
+
+// File drop zone functionality
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+});
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+});
+
+fileInput.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+});
+
+function handleFiles(files) {
+    uploadedFiles = {json: null, image: null};
+    
+    Array.from(files).forEach(file => {
+        if (file.name.endsWith('.json')) {
+            uploadedFiles.json = file;
+        } else if (file.name.match(/\.(png|jpg|jpeg)$/i)) {
+            uploadedFiles.image = file;
+        }
+    });
+    
+    if (uploadedFiles.json && uploadedFiles.image) {
+        uploadFiles();
+    } else {
+        alert('Please upload both a JSON file and an image file.');
+    }
+}
+
+function uploadFiles() {
+    const formData = new FormData();
+    formData.append('json_file', uploadedFiles.json);
+    formData.append('image_file', uploadedFiles.image);
+    
+    document.getElementById('loadingDiv').classList.remove('d-none');
+    
+    fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('loadingDiv').classList.add('d-none');
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            // Redirect to editor with uploaded files
+            const params = new URLSearchParams({
+                json_path: data.json_path,
+                image_path: data.image_path,
+                uploaded: 'true'
+            });
+            window.location.href = '/editor?' + params.toString();
+        }
+    })
+    .catch(error => {
+        document.getElementById('loadingDiv').classList.add('d-none');
+        alert('Error uploading files: ' + error);
+    });
+}
+
+function loadFile(jsonPath, imagePath) {
+    document.getElementById('loadingDiv').classList.remove('d-none');
+    
+    const params = new URLSearchParams({
+        json_path: jsonPath,
+        image_path: imagePath
+    });
+    window.location.href = '/editor?' + params.toString();
+}
+</script>
+{% endblock %}

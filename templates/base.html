@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}OCR Editor{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .file-drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .file-drop-zone:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        .file-drop-zone.dragover {
+            border-color: #007bff;
+            background-color: #e3f2fd;
+        }
+        .bbox-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .bbox-item {
+            cursor: pointer;
+            border: 1px solid #ddd;
+            margin-bottom: 5px;
+            padding: 10px;
+            border-radius: 5px;
+            transition: all 0.2s;
+        }
+        .bbox-item:hover {
+            background-color: #f8f9fa;
+        }
+        .bbox-item.selected {
+            border-color: #007bff;
+            background-color: #e3f2fd;
+        }
+        .bbox-item.grouped {
+            border-left: 4px solid #28a745;
+        }
+        .image-container {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+        }
+        .bbox-overlay {
+            position: absolute;
+            border: 2px solid #007bff;
+            background-color: rgba(0, 123, 255, 0.1);
+            cursor: move;
+            pointer-events: auto;
+        }
+        .bbox-overlay:hover {
+            border-color: #0056b3;
+        }
+        .bbox-overlay.selected {
+            border-color: #dc3545;
+            background-color: rgba(220, 53, 69, 0.1);
+        }
+        .bbox-overlay.grouped {
+            border-color: #28a745;
+            background-color: rgba(40, 167, 69, 0.1);
+        }
+        .resize-handle {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: #007bff;
+            border: 1px solid #fff;
+        }
+        .resize-handle.nw { top: -4px; left: -4px; cursor: nw-resize; }
+        .resize-handle.ne { top: -4px; right: -4px; cursor: ne-resize; }
+        .resize-handle.sw { bottom: -4px; left: -4px; cursor: sw-resize; }
+        .resize-handle.se { bottom: -4px; right: -4px; cursor: se-resize; }
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+        .group-indicator {
+            position: absolute;
+            top: -8px;
+            left: -8px;
+            background-color: #28a745;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .card-hover {
+            transition: all 0.2s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .navigation-controls {
+            background: rgba(248, 249, 250, 0.95);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-edit"></i> OCR Editor
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">File Browser</a>
+                <a class="nav-link" href="/editor">Editor</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mt-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,809 @@
+{% extends "base.html" %}
+
+{% block title %}OCR Editor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Control Panel -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-cogs"></i> Controls</h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-success btn-sm w-100 mb-2" onclick="saveFile()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+                <button class="btn btn-primary btn-sm w-100 mb-2" onclick="addBoundingBox()">
+                    <i class="fas fa-plus"></i> Add Bbox
+                </button>
+                <button class="btn btn-warning btn-sm w-100 mb-2" onclick="groupSelected()">
+                    <i class="fas fa-object-group"></i> Group Selected
+                </button>
+                <button class="btn btn-secondary btn-sm w-100 mb-2" onclick="ungroupSelected()">
+                    <i class="fas fa-object-ungroup"></i> Ungroup
+                </button>
+                <button class="btn btn-danger btn-sm w-100" onclick="deleteSelected()">
+                    <i class="fas fa-trash"></i> Delete Selected
+                </button>
+                
+                <hr>
+                
+                <h6>Reading Order</h6>
+                <p class="small text-muted">Drag items to reorder</p>
+                <div class="bbox-list" id="bboxList">
+                    <!-- Bounding boxes will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Image Editor -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-image"></i> Image Editor</h5>
+                <div>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="zoomIn()">
+                        <i class="fas fa-search-plus"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="zoomOut()">
+                        <i class="fas fa-search-minus"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="resetZoom()">
+                        <i class="fas fa-expand-arrows-alt"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Navigation Controls -->
+                <div class="navigation-controls d-none" id="navigationControls">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <button class="btn btn-outline-primary btn-sm" onclick="navigatePage('prev')">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </button>
+                        <div class="text-center">
+                            <small class="text-muted" id="pageInfo">Page 1 of 1</small>
+                            <br>
+                            <small class="text-muted" id="folderInfo">Folder</small>
+                        </div>
+                        <button class="btn btn-outline-primary btn-sm" onclick="navigatePage('next')">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    <div class="mt-2">
+                        <div class="d-flex align-items-center">
+                            <small class="text-muted me-2">Quick jump:</small>
+                            <input type="number" id="pageJump" class="form-control form-control-sm" 
+                                   style="width: 60px;" min="1" placeholder="1">
+                            <button class="btn btn-outline-secondary btn-sm ms-1" onclick="jumpToPage()">Go</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="image-container" id="imageContainer">
+                    <img id="mainImage" src="" alt="Document" style="max-width: 100%; height: auto;">
+                    <!-- Bounding box overlays will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Properties Panel -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-edit"></i> Properties</h5>
+            </div>
+            <div class="card-body">
+                <div id="propertiesPanel">
+                    <p class="text-muted">Select a bounding box to edit properties</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="loading d-none" id="loadingDiv">
+    <i class="fas fa-spinner fa-spin fa-2x"></i>
+    <p>Loading...</p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let bboxData = [];
+let selectedBboxes = [];
+let currentZoom = 1;
+let isUploaded = false;
+let currentFilePath = '';
+let currentImagePath = '';
+let groups = {};
+let nextGroupId = 1;
+let currentPageInfo = null;
+
+// Categories from Flask app
+const categories = {{ categories | tojson }};
+
+// Initialize when page loads
+$(document).ready(function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const jsonPath = urlParams.get('json_path');
+    const imagePath = urlParams.get('image_path');
+    isUploaded = urlParams.get('uploaded') === 'true';
+    
+    if (jsonPath && imagePath) {
+        currentImagePath = imagePath;
+        loadFileData(jsonPath, imagePath);
+    }
+    
+    // Initialize sortable for reading order
+    new Sortable(document.getElementById('bboxList'), {
+        animation: 150,
+        onEnd: function(evt) {
+            updateReadingOrder();
+        }
+    });
+});
+
+function loadFileData(jsonPath, imagePath) {
+    $('#loadingDiv').removeClass('d-none');
+    
+    // Set image source
+    const imageUrl = isUploaded ? 
+        `/api/image/${imagePath}` : 
+        `/api/image/${imagePath}`;
+    
+    $('#mainImage').attr('src', imageUrl);
+    
+    // Load JSON data
+    const loadUrl = isUploaded ? 
+        `/api/load_file?path=${jsonPath}` :
+        `/api/load_file?path=${jsonPath}`;
+    
+    fetch(loadUrl)
+        .then(response => response.json())
+        .then(data => {
+            $('#loadingDiv').addClass('d-none');
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                bboxData = data.data;
+                currentFilePath = data.file_path;
+                
+                // Enable navigation controls if not uploaded file
+                if (!isUploaded) {
+                    $('#navigationControls').removeClass('d-none');
+                    updatePageInfo();
+                }
+                
+                renderBoundingBoxes();
+                updateBboxList();
+            }
+        })
+        .catch(error => {
+            $('#loadingDiv').addClass('d-none');
+            alert('Error loading file: ' + error);
+        });
+}
+
+function renderBoundingBoxes() {
+    // Clear existing overlays
+    $('.bbox-overlay').remove();
+    
+    const img = $('#mainImage')[0];
+    const container = $('#imageContainer');
+    
+    // Wait for image to load
+    img.onload = function() {
+        bboxData.forEach((bbox, index) => {
+            createBboxOverlay(bbox, index);
+        });
+    };
+    
+    // If image is already loaded
+    if (img.complete) {
+        bboxData.forEach((bbox, index) => {
+            createBboxOverlay(bbox, index);
+        });
+    }
+}
+
+function createBboxOverlay(bbox, index) {
+    const img = $('#mainImage')[0];
+    const container = $('#imageContainer');
+    
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    
+    const scaleX = img.clientWidth / img.naturalWidth;
+    const scaleY = img.clientHeight / img.naturalHeight;
+    
+    const [x1, y1, x2, y2] = bbox.bbox;
+    const left = x1 * scaleX;
+    const top = y1 * scaleY;
+    const width = (x2 - x1) * scaleX;
+    const height = (y2 - y1) * scaleY;
+    
+    const overlay = $(`
+        <div class="bbox-overlay" data-index="${index}" style="
+            left: ${left}px;
+            top: ${top}px;
+            width: ${width}px;
+            height: ${height}px;
+        ">
+            ${bbox.group_id ? `<div class="group-indicator">${bbox.group_id}</div>` : ''}
+            <div class="resize-handle nw"></div>
+            <div class="resize-handle ne"></div>
+            <div class="resize-handle sw"></div>
+            <div class="resize-handle se"></div>
+        </div>
+    `);
+    
+    // Add group styling if applicable
+    if (bbox.group_id) {
+        overlay.addClass('grouped');
+    }
+    
+    container.append(overlay);
+    
+    // Make draggable and resizable
+    makeDraggable(overlay[0], index);
+    makeResizable(overlay[0], index);
+    
+    // Click handler
+    overlay.click(function(e) {
+        e.stopPropagation();
+        selectBbox(index, e.ctrlKey || e.metaKey);
+    });
+}
+
+function makeDraggable(element, index) {
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+    
+    element.addEventListener('mousedown', function(e) {
+        if (e.target.classList.contains('resize-handle')) return;
+        
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startLeft = parseInt(element.style.left);
+        startTop = parseInt(element.style.top);
+        
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        e.preventDefault();
+    });
+    
+    function onMouseMove(e) {
+        if (!isDragging) return;
+        
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        
+        element.style.left = (startLeft + dx) + 'px';
+        element.style.top = (startTop + dy) + 'px';
+    }
+    
+    function onMouseUp() {
+        if (isDragging) {
+            isDragging = false;
+            updateBboxFromOverlay(element, index);
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+    }
+}
+
+function makeResizable(element, index) {
+    const handles = element.querySelectorAll('.resize-handle');
+    
+    handles.forEach(handle => {
+        handle.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+            
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startWidth = parseInt(element.style.width);
+            const startHeight = parseInt(element.style.height);
+            const startLeft = parseInt(element.style.left);
+            const startTop = parseInt(element.style.top);
+            const handleClass = handle.className.split(' ')[1];
+            
+            function onMouseMove(e) {
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                
+                let newWidth = startWidth;
+                let newHeight = startHeight;
+                let newLeft = startLeft;
+                let newTop = startTop;
+                
+                switch(handleClass) {
+                    case 'nw':
+                        newWidth = startWidth - dx;
+                        newHeight = startHeight - dy;
+                        newLeft = startLeft + dx;
+                        newTop = startTop + dy;
+                        break;
+                    case 'ne':
+                        newWidth = startWidth + dx;
+                        newHeight = startHeight - dy;
+                        newTop = startTop + dy;
+                        break;
+                    case 'sw':
+                        newWidth = startWidth - dx;
+                        newHeight = startHeight + dy;
+                        newLeft = startLeft + dx;
+                        break;
+                    case 'se':
+                        newWidth = startWidth + dx;
+                        newHeight = startHeight + dy;
+                        break;
+                }
+                
+                // Minimum size constraints
+                if (newWidth > 10 && newHeight > 10) {
+                    element.style.width = newWidth + 'px';
+                    element.style.height = newHeight + 'px';
+                    element.style.left = newLeft + 'px';
+                    element.style.top = newTop + 'px';
+                }
+            }
+            
+            function onMouseUp() {
+                updateBboxFromOverlay(element, index);
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            }
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    });
+}
+
+function updateBboxFromOverlay(element, index) {
+    const img = $('#mainImage')[0];
+    
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    
+    const scaleX = img.naturalWidth / img.clientWidth;
+    const scaleY = img.naturalHeight / img.clientHeight;
+    
+    const left = parseInt(element.style.left) * scaleX;
+    const top = parseInt(element.style.top) * scaleY;
+    const width = parseInt(element.style.width) * scaleX;
+    const height = parseInt(element.style.height) * scaleY;
+    
+    bboxData[index].bbox = [
+        Math.round(left),
+        Math.round(top),
+        Math.round(left + width),
+        Math.round(top + height)
+    ];
+    
+    updateBboxList();
+    updatePropertiesPanel();
+}
+
+function selectBbox(index, multiSelect = false) {
+    if (!multiSelect) {
+        selectedBboxes = [index];
+        $('.bbox-overlay').removeClass('selected');
+        $('.bbox-item').removeClass('selected');
+    } else {
+        const existingIndex = selectedBboxes.indexOf(index);
+        if (existingIndex > -1) {
+            selectedBboxes.splice(existingIndex, 1);
+        } else {
+            selectedBboxes.push(index);
+        }
+    }
+    
+    // Update visual selection
+    selectedBboxes.forEach(idx => {
+        $(`.bbox-overlay[data-index="${idx}"]`).addClass('selected');
+        $(`.bbox-item[data-index="${idx}"]`).addClass('selected');
+    });
+    
+    updatePropertiesPanel();
+}
+
+function updateBboxList() {
+    const list = $('#bboxList');
+    list.empty();
+    
+    // Sort by reading order
+    const sortedData = bboxData
+        .map((bbox, index) => ({...bbox, originalIndex: index}))
+        .sort((a, b) => (a.reading_order || 0) - (b.reading_order || 0));
+    
+    sortedData.forEach((bbox, listIndex) => {
+        const item = $(`
+            <div class="bbox-item" data-index="${bbox.originalIndex}">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${bbox.category || 'Unknown'}</strong>
+                        ${bbox.group_id ? `<span class="badge bg-success ms-1">G${bbox.group_id}</span>` : ''}
+                    </div>
+                    <small>#${listIndex + 1}</small>
+                </div>
+                <div class="small text-muted mt-1">
+                    ${bbox.text ? bbox.text.substring(0, 50) + (bbox.text.length > 50 ? '...' : '') : 'No text'}
+                </div>
+                <div class="small text-muted">
+                    [${bbox.bbox.join(', ')}]
+                </div>
+            </div>
+        `);
+        
+        item.click(function(e) {
+            selectBbox(bbox.originalIndex, e.ctrlKey || e.metaKey);
+        });
+        
+        list.append(item);
+    });
+}
+
+function updateReadingOrder() {
+    const items = $('#bboxList .bbox-item');
+    items.each(function(index) {
+        const bboxIndex = parseInt($(this).data('index'));
+        bboxData[bboxIndex].reading_order = index;
+    });
+}
+
+function updatePropertiesPanel() {
+    const panel = $('#propertiesPanel');
+    
+    if (selectedBboxes.length === 0) {
+        panel.html('<p class="text-muted">Select a bounding box to edit properties</p>');
+        return;
+    }
+    
+    if (selectedBboxes.length === 1) {
+        const bbox = bboxData[selectedBboxes[0]];
+        panel.html(`
+            <div class="mb-3">
+                <label class="form-label">Category</label>
+                <select class="form-select" id="categorySelect">
+                    ${categories.map(cat => 
+                        `<option value="${cat}" ${bbox.category === cat ? 'selected' : ''}>${cat}</option>`
+                    ).join('')}
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Text</label>
+                <textarea class="form-control" id="textArea" rows="4">${bbox.text || ''}</textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Bounding Box</label>
+                <div class="row">
+                    <div class="col-6">
+                        <input type="number" class="form-control form-control-sm" id="x1Input" 
+                               placeholder="X1" value="${bbox.bbox[0]}">
+                    </div>
+                    <div class="col-6">
+                        <input type="number" class="form-control form-control-sm" id="y1Input" 
+                               placeholder="Y1" value="${bbox.bbox[1]}">
+                    </div>
+                </div>
+                <div class="row mt-1">
+                    <div class="col-6">
+                        <input type="number" class="form-control form-control-sm" id="x2Input" 
+                               placeholder="X2" value="${bbox.bbox[2]}">
+                    </div>
+                    <div class="col-6">
+                        <input type="number" class="form-control form-control-sm" id="y2Input" 
+                               placeholder="Y2" value="${bbox.bbox[3]}">
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-primary btn-sm w-100" onclick="applyProperties()">
+                Apply Changes
+            </button>
+        `);
+    } else {
+        panel.html(`
+            <p class="text-muted">${selectedBboxes.length} bounding boxes selected</p>
+            <div class="mb-3">
+                <label class="form-label">Category (bulk edit)</label>
+                <select class="form-select" id="bulkCategorySelect">
+                    <option value="">-- No change --</option>
+                    ${categories.map(cat => `<option value="${cat}">${cat}</option>`).join('')}
+                </select>
+            </div>
+            <button class="btn btn-primary btn-sm w-100" onclick="applyBulkProperties()">
+                Apply to Selected
+            </button>
+        `);
+    }
+}
+
+function applyProperties() {
+    if (selectedBboxes.length !== 1) return;
+    
+    const index = selectedBboxes[0];
+    const bbox = bboxData[index];
+    
+    bbox.category = $('#categorySelect').val();
+    bbox.text = $('#textArea').val();
+    bbox.bbox = [
+        parseInt($('#x1Input').val()),
+        parseInt($('#y1Input').val()),
+        parseInt($('#x2Input').val()),
+        parseInt($('#y2Input').val())
+    ];
+    
+    renderBoundingBoxes();
+    updateBboxList();
+}
+
+function applyBulkProperties() {
+    const category = $('#bulkCategorySelect').val();
+    
+    if (category) {
+        selectedBboxes.forEach(index => {
+            bboxData[index].category = category;
+        });
+    }
+    
+    renderBoundingBoxes();
+    updateBboxList();
+    updatePropertiesPanel();
+}
+
+function groupSelected() {
+    if (selectedBboxes.length < 2) {
+        alert('Please select at least 2 bounding boxes to group.');
+        return;
+    }
+    
+    const groupId = nextGroupId++;
+    selectedBboxes.forEach(index => {
+        bboxData[index].group_id = groupId;
+    });
+    
+    groups[groupId] = [...selectedBboxes];
+    renderBoundingBoxes();
+    updateBboxList();
+}
+
+function ungroupSelected() {
+    selectedBboxes.forEach(index => {
+        const bbox = bboxData[index];
+        if (bbox.group_id) {
+            delete groups[bbox.group_id];
+            delete bbox.group_id;
+        }
+    });
+    
+    renderBoundingBoxes();
+    updateBboxList();
+}
+
+function deleteSelected() {
+    if (selectedBboxes.length === 0) return;
+    
+    if (!confirm(`Delete ${selectedBboxes.length} bounding box(es)?`)) return;
+    
+    // Sort indices in descending order to avoid index shifting issues
+    selectedBboxes.sort((a, b) => b - a);
+    
+    selectedBboxes.forEach(index => {
+        bboxData.splice(index, 1);
+    });
+    
+    selectedBboxes = [];
+    renderBoundingBoxes();
+    updateBboxList();
+    updatePropertiesPanel();
+}
+
+function addBoundingBox() {
+    const newBbox = {
+        bbox: [100, 100, 200, 150],
+        category: 'Text',
+        text: '',
+        reading_order: bboxData.length
+    };
+    
+    bboxData.push(newBbox);
+    renderBoundingBoxes();
+    updateBboxList();
+}
+
+function saveFile() {
+    if (!currentFilePath) {
+        alert('No file loaded to save.');
+        return;
+    }
+    
+    $('#loadingDiv').removeClass('d-none');
+    
+    fetch('/api/save_file', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            file_path: currentFilePath,
+            data: bboxData
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        $('#loadingDiv').addClass('d-none');
+        if (data.error) {
+            alert('Error saving: ' + data.error);
+        } else {
+            alert('File saved successfully!');
+        }
+    })
+    .catch(error => {
+        $('#loadingDiv').addClass('d-none');
+        alert('Error saving file: ' + error);
+    });
+}
+
+function zoomIn() {
+    currentZoom *= 1.2;
+    applyZoom();
+}
+
+function zoomOut() {
+    currentZoom /= 1.2;
+    applyZoom();
+}
+
+function resetZoom() {
+    currentZoom = 1;
+    applyZoom();
+}
+
+function applyZoom() {
+    const img = $('#mainImage');
+    img.css('transform', `scale(${currentZoom})`);
+    img.css('transform-origin', 'top left');
+    
+    // Re-render bounding boxes after zoom
+    setTimeout(() => {
+        renderBoundingBoxes();
+    }, 100);
+}
+
+// Navigation functions
+function navigatePage(direction) {
+    if (!currentFilePath || isUploaded) return;
+    
+    $('#loadingDiv').removeClass('d-none');
+    
+    fetch(`/api/navigate?current_path=${encodeURIComponent(currentFilePath)}&direction=${direction}`)
+        .then(response => response.json())
+        .then(data => {
+            $('#loadingDiv').addClass('d-none');
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                // Update current paths
+                currentFilePath = data.json_path;
+                currentImagePath = data.image_path;
+                currentPageInfo = data;
+                
+                // Update URL without reload
+                const newUrl = new URLSearchParams({
+                    json_path: data.json_path,
+                    image_path: data.image_path
+                });
+                window.history.pushState({}, '', '/editor?' + newUrl.toString());
+                
+                // Load new data
+                loadFileData(data.json_path, data.image_path);
+            }
+        })
+        .catch(error => {
+            $('#loadingDiv').addClass('d-none');
+            alert('Error navigating: ' + error);
+        });
+}
+
+function jumpToPage() {
+    const pageNum = parseInt($('#pageJump').val());
+    if (!pageNum || !currentPageInfo) return;
+    
+    if (pageNum < 1 || pageNum > currentPageInfo.total_pages) {
+        alert(`Please enter a page number between 1 and ${currentPageInfo.total_pages}`);
+        return;
+    }
+    
+    // Calculate how many steps to navigate
+    const currentPage = currentPageInfo.current_page;
+    const steps = pageNum - currentPage;
+    
+    if (steps === 0) return;
+    
+    const direction = steps > 0 ? 'next' : 'prev';
+    const absoluteSteps = Math.abs(steps);
+    
+    // Navigate step by step (could be optimized with a direct jump API)
+    let stepCount = 0;
+    function navigateStep() {
+        if (stepCount >= absoluteSteps) return;
+        
+        stepCount++;
+        navigatePage(direction);
+        
+        // Wait a bit before next step to ensure completion
+        if (stepCount < absoluteSteps) {
+            setTimeout(navigateStep, 500);
+        }
+    }
+    
+    navigateStep();
+}
+
+function updatePageInfo() {
+    if (!currentPageInfo) {
+        // Try to get page info from current path
+        fetch(`/api/navigate?current_path=${encodeURIComponent(currentFilePath)}&direction=next`)
+            .then(response => response.json())
+            .then(data => {
+                if (!data.error) {
+                    // Navigate back to get current info
+                    fetch(`/api/navigate?current_path=${encodeURIComponent(data.json_path)}&direction=prev`)
+                        .then(response => response.json())
+                        .then(currentData => {
+                            if (!currentData.error) {
+                                currentPageInfo = currentData;
+                                displayPageInfo();
+                            }
+                        });
+                }
+            });
+    } else {
+        displayPageInfo();
+    }
+}
+
+function displayPageInfo() {
+    if (currentPageInfo) {
+        $('#pageInfo').text(`Page ${currentPageInfo.current_page} of ${currentPageInfo.total_pages}`);
+        $('#folderInfo').text(currentPageInfo.folder);
+        $('#pageJump').attr('max', currentPageInfo.total_pages);
+        $('#pageJump').val(currentPageInfo.current_page);
+    }
+}
+
+// Keyboard shortcuts
+$(document).keydown(function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    
+    switch(e.key) {
+        case 'ArrowLeft':
+            e.preventDefault();
+            navigatePage('prev');
+            break;
+        case 'ArrowRight':
+            e.preventDefault();
+            navigatePage('next');
+            break;
+        case 's':
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                saveFile();
+            }
+            break;
+    }
+});
+
+// Click outside to deselect
+$(document).click(function(e) {
+    if (!$(e.target).closest('.bbox-overlay, .bbox-item').length) {
+        selectedBboxes = [];
+        $('.bbox-overlay').removeClass('selected');
+        $('.bbox-item').removeClass('selected');
+        updatePropertiesPanel();
+    }
+});
+</script>
+{% endblock %}
