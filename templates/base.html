@@ -110,6 +110,79 @@
             padding: 10px;
             margin-bottom: 10px;
         }
+        .validation-indicator {
+            font-size: 0.8rem;
+        }
+        .btn-success.validated {
+            background-color: #28a745;
+            border-color: #28a745;
+        }
+        .btn-warning.unvalidated {
+            background-color: #ffc107;
+            border-color: #ffc107;
+        }
+        .sidebar {
+            position: fixed;
+            top: 56px; /* Height of navbar */
+            left: 0;
+            bottom: 0;
+            width: 300px;
+            background-color: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        .sidebar-toggle {
+            position: fixed;
+            top: 70px;
+            left: 10px;
+            z-index: 1001;
+        }
+        .main-content {
+            margin-left: 300px;
+            transition: margin-left 0.3s;
+        }
+        .main-content.sidebar-collapsed {
+            margin-left: 0;
+        }
+        .sidebar.collapsed {
+            left: -300px;
+        }
+        .folder-item {
+            cursor: pointer;
+            padding: 8px 15px;
+            border-bottom: 1px solid #e9ecef;
+            transition: background-color 0.2s;
+        }
+        .folder-item:hover {
+            background-color: #e9ecef;
+        }
+        .folder-item.active {
+            background-color: #007bff;
+            color: white;
+        }
+        .page-item {
+            cursor: pointer;
+            padding: 4px 30px;
+            font-size: 0.85rem;
+            transition: background-color 0.2s;
+        }
+        .page-item:hover {
+            background-color: #f1f3f4;
+        }
+        .page-item.active {
+            background-color: #0056b3;
+            color: white;
+        }
+        .folder-item.active .page-item:hover {
+            background-color: rgba(255,255,255,0.1);
+        }
+        .folder-pages {
+            display: none;
+        }
+        .folder-item.active .folder-pages {
+            display: block;
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -126,13 +199,227 @@
         </div>
     </nav>
 
-    <main class="container mt-4">
-        {% block content %}{% endblock %}
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="p-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="mb-0"><i class="fas fa-folder-tree"></i> Folders</h6>
+                <button class="btn btn-sm btn-outline-primary" onclick="exportProject()">
+                    <i class="fas fa-download"></i> Export All
+                </button>
+            </div>
+            <div id="folderTree">
+                <!-- Folder tree will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar toggle button -->
+    <button class="btn btn-primary sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">
+        <i class="fas fa-bars"></i>
+    </button>
+
+    <main class="main-content" id="mainContent">
+        <div class="container mt-4">
+            {% block content %}{% endblock %}
+        </div>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    
+    <script>
+    // Global sidebar functionality
+    let sidebarVisible = true;
+    let folderData = {};
+    
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.getElementById('mainContent');
+        const toggleBtn = document.getElementById('sidebarToggle');
+        
+        sidebarVisible = !sidebarVisible;
+        
+        if (sidebarVisible) {
+            sidebar.classList.remove('collapsed');
+            mainContent.classList.remove('sidebar-collapsed');
+            toggleBtn.innerHTML = '<i class="fas fa-bars"></i>';
+        } else {
+            sidebar.classList.add('collapsed');
+            mainContent.classList.add('sidebar-collapsed');
+            toggleBtn.innerHTML = '<i class="fas fa-chevron-right"></i>';
+        }
+        
+        localStorage.setItem('sidebarVisible', sidebarVisible);
+    }
+    
+    function loadFolderTree() {
+        fetch('/api/stats')
+            .then(response => response.json())
+            .then(statsData => {
+                // Get folder structure
+                fetch('/api/folders')
+                    .then(response => response.json())
+                    .then(data => {
+                        folderData = data;
+                        window.folderData = data; // Make available globally
+                        renderFolderTree(statsData);
+                    })
+                    .catch(error => console.error('Error loading folders:', error));
+            })
+            .catch(error => console.error('Error loading stats:', error));
+    }
+    
+    function renderFolderTree(statsData = null) {
+        const folderTree = document.getElementById('folderTree');
+        if (!folderTree) return;
+        
+        let html = '';
+        
+        for (const [folderName, files] of Object.entries(folderData)) {
+            const folderStats = statsData ? 
+                statsData.folder_stats.find(f => f.folder_name === folderName) : 
+                null;
+            
+            const validatedCount = folderStats ? folderStats.validated : 0;
+            const totalCount = files.length;
+            
+            html += `
+                <div class="folder-item" data-folder="${folderName}" onclick="toggleFolder('${folderName}')">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-folder me-2"></i>
+                            <span>${folderName}</span>
+                        </div>
+                        <div class="text-end">
+                            <small class="text-muted">${totalCount} pages</small>
+                            ${validatedCount > 0 ? `<br><small class="text-success">${validatedCount} validated</small>` : ''}
+                        </div>
+                    </div>
+                    <div class="folder-pages">
+            `;
+            
+            files.forEach(file => {
+                html += `
+                    <div class="page-item" data-json-path="${file.json_path}" data-image-path="${file.image_path}"
+                         onclick="loadPage('${file.json_path}', '${file.image_path}'); event.stopPropagation();">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>Page ${file.page_num || 'N/A'}</span>
+                            <i class="fas fa-check-circle text-success validation-indicator d-none" 
+                               data-file-path="${file.json_path}"></i>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        folderTree.innerHTML = html;
+        
+        // Load validation status for all pages
+        loadAllValidationStatus();
+    }
+    
+    function toggleFolder(folderName) {
+        const folderItem = document.querySelector(`[data-folder="${folderName}"]`);
+        const allFolders = document.querySelectorAll('.folder-item');
+        
+        // Remove active class from all folders
+        allFolders.forEach(f => f.classList.remove('active'));
+        
+        // Add active class to clicked folder
+        folderItem.classList.add('active');
+    }
+    
+    function loadPage(jsonPath, imagePath) {
+        // Update active page
+        document.querySelectorAll('.page-item').forEach(p => p.classList.remove('active'));
+        document.querySelector(`[data-json-path="${jsonPath}"]`).classList.add('active');
+        
+        // Navigate to editor or update current page
+        if (window.location.pathname === '/editor') {
+            // If we're in the editor, load the new page
+            if (typeof loadFileData === 'function') {
+                loadFileData(jsonPath, imagePath);
+            }
+        } else {
+            // Navigate to editor
+            const params = new URLSearchParams({
+                json_path: jsonPath,
+                image_path: imagePath
+            });
+            window.location.href = '/editor?' + params.toString();
+        }
+    }
+    
+    function loadAllValidationStatus() {
+        document.querySelectorAll('.validation-indicator').forEach(indicator => {
+            const filePath = indicator.dataset.filePath;
+            
+            fetch(`/api/load_file?path=${encodeURIComponent(filePath)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.is_validated) {
+                        indicator.classList.remove('d-none');
+                    }
+                })
+                .catch(error => console.error('Error loading validation status:', error));
+        });
+    }
+    
+    function exportProject() {
+        fetch('/api/export', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                export_type: 'project'
+            })
+        })
+        .then(response => {
+            if (response.ok) {
+                return response.blob();
+            }
+            throw new Error('Export failed');
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `entire_project_${new Date().toISOString().slice(0,19).replace(/:/g, '')}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        })
+        .catch(error => {
+            alert('Error exporting project: ' + error.message);
+        });
+    }
+    
+    // Initialize sidebar on page load
+    $(document).ready(function() {
+        // Restore sidebar state
+        const savedState = localStorage.getItem('sidebarVisible');
+        if (savedState !== null) {
+            sidebarVisible = savedState === 'true';
+            if (!sidebarVisible) {
+                toggleSidebar();
+            }
+        }
+        
+        // Load folder tree
+        loadFolderTree();
+    });
+    </script>
+    
     {% block extra_js %}{% endblock %}
 </body>
 </html>

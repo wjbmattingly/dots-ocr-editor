@@ -4,70 +4,65 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-md-6">
-        <h2><i class="fas fa-folder-open"></i> Available Files</h2>
-        <div class="file-list">
-            {% if files_by_folder %}
-                <div class="accordion" id="folderAccordion">
-                    {% for folder_name, files in files_by_folder.items() %}
-                    <div class="accordion-item">
-                        <h2 class="accordion-header" id="heading{{ loop.index }}">
-                            <button class="accordion-button" type="button" data-bs-toggle="collapse" 
-                                    data-bs-target="#collapse{{ loop.index }}" aria-expanded="true">
-                                <i class="fas fa-folder me-2"></i>
-                                {{ folder_name }} <span class="badge bg-secondary ms-2">{{ files|length }} pages</span>
-                            </button>
-                        </h2>
-                        <div id="collapse{{ loop.index }}" class="accordion-collapse collapse show">
-                            <div class="accordion-body">
-                                <div class="row">
-                                    {% for file in files %}
-                                    <div class="col-md-6 col-lg-4 mb-2">
-                                        <div class="card card-hover" style="cursor: pointer;" 
-                                             onclick="loadFile('{{ file.json_path }}', '{{ file.image_path }}')">
-                                            <div class="card-body p-2">
-                                                <div class="d-flex justify-content-between align-items-center">
-                                                    <small class="text-muted">Page {{ file.page_num or loop.index }}</small>
-                                                    <i class="fas fa-file-alt text-primary"></i>
-                                                </div>
-                                                <h6 class="card-title small mb-1">{{ file.name }}</h6>
-                                                <p class="card-text text-muted" style="font-size: 0.75rem;">
-                                                    {{ file.json_path.split('/')[-1] }}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i> No files found in the configured data directory.
-                </div>
-            {% endif %}
-        </div>
-    </div>
-    
-    <div class="col-md-6">
-        <h2><i class="fas fa-upload"></i> Upload Files</h2>
-        <div class="file-drop-zone" id="dropZone">
-            <i class="fas fa-cloud-upload-alt fa-3x mb-3 text-muted"></i>
-            <h5>Drop JSON and Image files here</h5>
-            <p class="text-muted">or click to select files</p>
-            <input type="file" id="fileInput" multiple accept=".json,.png,.jpg,.jpeg" style="display: none;">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-home"></i> OCR Editor Dashboard</h2>
+            <div id="projectStats" class="text-end">
+                <!-- Project stats will be loaded here -->
+            </div>
         </div>
         
-        <div class="mt-3">
-            <h6>Instructions:</h6>
-            <ul class="small text-muted">
-                <li>Upload both a JSON file and its corresponding image</li>
-                <li>JSON should contain bounding box data with coordinates [x1, y1, x2, y2]</li>
-                <li>Supported image formats: PNG, JPG, JPEG</li>
-            </ul>
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-info-circle"></i> Welcome</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>Use the sidebar to navigate through your folders and pages. The sidebar shows:</p>
+                        <ul>
+                            <li><strong>All folders</strong> with page counts and validation status</li>
+                            <li><strong>Individual pages</strong> within each folder</li>
+                            <li><strong>Validation indicators</strong> (green checkmarks for validated pages)</li>
+                        </ul>
+                        
+                        <p>Click on any page in the sidebar to start editing. The sidebar persists across all pages for easy navigation.</p>
+                        
+                        <div class="mt-3">
+                            <h6>Quick Actions:</h6>
+                            <button class="btn btn-primary me-2" onclick="exportProject()">
+                                <i class="fas fa-download"></i> Export Entire Project
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="toggleSidebar()">
+                                <i class="fas fa-eye-slash"></i> Toggle Sidebar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-upload"></i> Upload Files</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="file-drop-zone" id="dropZone">
+                            <i class="fas fa-cloud-upload-alt fa-2x mb-2 text-muted"></i>
+                            <h6>Drop files here</h6>
+                            <p class="text-muted small">or click to select</p>
+                            <input type="file" id="fileInput" multiple accept=".json,.png,.jpg,.jpeg" style="display: none;">
+                        </div>
+                        
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                Upload both JSON and image files together. 
+                                Supported formats: PNG, JPG, JPEG
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -80,6 +75,121 @@
 
 {% block extra_js %}
 <script>
+// Load project stats on page load
+$(document).ready(function() {
+    loadDashboardStats();
+});
+
+function loadDashboardStats() {
+    fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.total_pages > 0) {
+                const progressPercentage = data.validation_percentage;
+                const progressColor = progressPercentage >= 80 ? 'success' : 
+                                    progressPercentage >= 50 ? 'warning' : 'danger';
+                
+                const statsHtml = `
+                    <div>
+                        <h5 class="mb-1">${data.total_pages} Total Pages</h5>
+                        <div class="progress mb-2" style="height: 20px;">
+                            <div class="progress-bar bg-${progressColor}" style="width: ${progressPercentage}%">
+                                ${data.validated_pages} validated (${progressPercentage}%)
+                            </div>
+                        </div>
+                        <small class="text-muted">
+                            ${data.folder_stats.length} folders • 
+                            ${data.validated_pages} validated • 
+                            ${data.total_pages - data.validated_pages} remaining
+                        </small>
+                    </div>
+                `;
+                $('#projectStats').html(statsHtml);
+            } else {
+                $('#projectStats').html('<small class="text-muted">No pages found</small>');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading stats:', error);
+            $('#projectStats').html('<small class="text-danger">Error loading stats</small>');
+        });
+}
+
+function exportFolder(folderName) {
+    fetch('/api/export', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            export_type: 'folder',
+            export_scope: folderName
+        })
+    })
+    .then(response => {
+        if (response.ok) {
+            return response.blob();
+        }
+        throw new Error('Export failed');
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `folder_${folderName}_${new Date().toISOString().slice(0,19).replace(/:/g, '')}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    })
+    .catch(error => {
+        alert('Error exporting folder: ' + error.message);
+    });
+}
+
+function exportProject() {
+    fetch('/api/export', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            export_type: 'project'
+        })
+    })
+    .then(response => {
+        if (response.ok) {
+            return response.blob();
+        }
+        throw new Error('Export failed');
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `entire_project_${new Date().toISOString().slice(0,19).replace(/:/g, '')}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    })
+    .catch(error => {
+        alert('Error exporting project: ' + error.message);
+    });
+}
+
+function loadFile(jsonPath, imagePath) {
+    document.getElementById('loadingDiv').classList.remove('d-none');
+    
+    const params = new URLSearchParams({
+        json_path: jsonPath,
+        image_path: imagePath
+    });
+    window.location.href = '/editor?' + params.toString();
+}
+
 let uploadedFiles = {json: null, image: null};
 
 // File drop zone functionality
@@ -152,16 +262,6 @@ function uploadFiles() {
         document.getElementById('loadingDiv').classList.add('d-none');
         alert('Error uploading files: ' + error);
     });
-}
-
-function loadFile(jsonPath, imagePath) {
-    document.getElementById('loadingDiv').classList.remove('d-none');
-    
-    const params = new URLSearchParams({
-        json_path: jsonPath,
-        image_path: imagePath
-    });
-    window.location.href = '/editor?' + params.toString();
 }
 </script>
 {% endblock %}

@@ -9,12 +9,22 @@ A Flask web application for editing OCR output, allowing users to:
 
 ## Features
 
-### File Loading
-- **Organized File Browser**: Files grouped by folder with page counts
+### File Loading & Organization
+- **Organized File Browser**: Files grouped alphabetically by folder with page counts
 - **PDF Page Support**: Automatic detection and sorting of multi-page documents
+- **Validation Status**: Visual indicators show which pages have been validated
 - Load files from configured data directory (via `config.yaml`)
 - Drag-and-drop upload of JSON and image files
 - Support for various image formats (PNG, JPG, JPEG)
+
+### Data Management
+- **SQLite Database**: All edits automatically saved to local database
+- **Validation Tracking**: Mark pages as validated with timestamp logging
+- **Export Options**: 
+  - Single page export with metadata
+  - Folder export (all pages in a document)
+  - Entire project export
+- **Project Statistics**: Real-time tracking of validation progress
 
 ### Interactive Editing
 - **Bounding Box Editing**: Click and drag to move boxes, resize using corner handles
@@ -25,6 +35,10 @@ A Flask web application for editing OCR output, allowing users to:
 - **Zoom Controls**: Zoom in/out for precise editing
 - **Page Navigation**: Navigate between PDF pages with Previous/Next buttons
 - **Quick Jump**: Jump directly to any page number
+- **Validation Tracking**: Mark pages as validated with visual indicators
+- **Database Storage**: All edits saved to local SQLite database
+- **Export Functionality**: Export individual pages, folders, or entire project
+- **Project Statistics**: Track validation progress across all pages
 - **Keyboard Shortcuts**: Use arrow keys for navigation, Ctrl+S to save
 
 ### Layout Categories

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="row">
     <!-- Control Panel -->
-    <div class="col-md-3">
+    <div class="col-md-4 col-lg-3">
         <div class="card">
             <div class="card-header">
                 <h5><i class="fas fa-cogs"></i> Controls</h5>
@@ -13,6 +13,12 @@
             <div class="card-body">
                 <button class="btn btn-success btn-sm w-100 mb-2" onclick="saveFile()">
                     <i class="fas fa-save"></i> Save Changes
+                </button>
+                <button class="btn btn-primary btn-sm w-100 mb-2" id="validateBtn" onclick="toggleValidation()">
+                    <i class="fas fa-check"></i> <span id="validateBtnText">Mark as Validated</span>
+                </button>
+                <button class="btn btn-info btn-sm w-100 mb-2" onclick="exportCurrentPage()">
+                    <i class="fas fa-download"></i> Export Page
                 </button>
                 <button class="btn btn-primary btn-sm w-100 mb-2" onclick="addBoundingBox()">
                     <i class="fas fa-plus"></i> Add Bbox
@@ -39,7 +45,7 @@
     </div>
     
     <!-- Image Editor -->
-    <div class="col-md-6">
+    <div class="col-md-5 col-lg-6">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5><i class="fas fa-image"></i> Image Editor</h5>
@@ -57,9 +63,9 @@
             </div>
             <div class="card-body">
                 <!-- Navigation Controls -->
-                <div class="navigation-controls d-none" id="navigationControls">
+                <div class="navigation-controls" id="navigationControls">
                     <div class="d-flex justify-content-between align-items-center">
-                        <button class="btn btn-outline-primary btn-sm" onclick="navigatePage('prev')">
+                        <button class="btn btn-outline-primary btn-sm" onclick="navigateToAdjacentPage('prev')" id="prevBtn">
                             <i class="fas fa-chevron-left"></i> Previous
                         </button>
                         <div class="text-center">
@@ -67,17 +73,12 @@
                             <br>
                             <small class="text-muted" id="folderInfo">Folder</small>
                         </div>
-                        <button class="btn btn-outline-primary btn-sm" onclick="navigatePage('next')">
+                        <button class="btn btn-outline-primary btn-sm" onclick="navigateToAdjacentPage('next')" id="nextBtn">
                             Next <i class="fas fa-chevron-right"></i>
                         </button>
                     </div>
-                    <div class="mt-2">
-                        <div class="d-flex align-items-center">
-                            <small class="text-muted me-2">Quick jump:</small>
-                            <input type="number" id="pageJump" class="form-control form-control-sm" 
-                                   style="width: 60px;" min="1" placeholder="1">
-                            <button class="btn btn-outline-secondary btn-sm ms-1" onclick="jumpToPage()">Go</button>
-                        </div>
+                    <div class="mt-2 text-center">
+                        <small class="text-muted">Use sidebar for folder navigation</small>
                     </div>
                 </div>
                 <div class="image-container" id="imageContainer">
@@ -89,7 +90,7 @@
     </div>
     
     <!-- Properties Panel -->
-    <div class="col-md-3">
+    <div class="col-md-3 col-lg-3">
         <div class="card">
             <div class="card-header">
                 <h5><i class="fas fa-edit"></i> Properties</h5>
@@ -120,6 +121,7 @@ let currentImagePath = '';
 let groups = {};
 let nextGroupId = 1;
 let currentPageInfo = null;
+let isValidated = false;
 
 // Categories from Flask app
 const categories = {{ categories | tojson }};
@@ -169,12 +171,16 @@ function loadFileData(jsonPath, imagePath) {
             } else {
                 bboxData = data.data;
                 currentFilePath = data.file_path;
+                isValidated = data.is_validated || false;
                 
-                // Enable navigation controls if not uploaded file
-                if (!isUploaded) {
-                    $('#navigationControls').removeClass('d-none');
-                    updatePageInfo();
-                }
+                // Update validation button
+                updateValidationButton();
+                
+                // Update sidebar active state
+                updateSidebarActiveState();
+                
+                // Update page info
+                updateCurrentPageInfo();
                 
                 renderBoundingBoxes();
                 updateBboxList();
@@ -637,12 +643,132 @@ function saveFile() {
         if (data.error) {
             alert('Error saving: ' + data.error);
         } else {
-            alert('File saved successfully!');
+            // Show success message with save type
+            const message = data.saved_to_file ? 
+                'File saved to database and filesystem!' : 
+                'File saved to database!';
+            
+            // Create a temporary success indicator
+            const saveBtn = $('button:contains("Save Changes")');
+            const originalText = saveBtn.html();
+            saveBtn.html('<i class="fas fa-check"></i> Saved!').removeClass('btn-success').addClass('btn-outline-success');
+            
+            setTimeout(() => {
+                saveBtn.html(originalText).removeClass('btn-outline-success').addClass('btn-success');
+            }, 2000);
         }
     })
     .catch(error => {
         $('#loadingDiv').addClass('d-none');
         alert('Error saving file: ' + error);
+    });
+}
+
+function toggleValidation() {
+    if (!currentFilePath) {
+        alert('No file loaded.');
+        return;
+    }
+    
+    const newValidationStatus = !isValidated;
+    
+    fetch('/api/validate_page', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            file_path: currentFilePath,
+            is_validated: newValidationStatus
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error updating validation: ' + data.error);
+        } else {
+            isValidated = data.is_validated;
+            updateValidationButton();
+            
+            const message = isValidated ? 'Page marked as validated!' : 'Page unmarked as validated!';
+            
+            // Show temporary success message
+            const validateBtn = $('#validateBtn');
+            const originalContent = validateBtn.html();
+            validateBtn.html('<i class="fas fa-check"></i> ' + (isValidated ? 'Validated!' : 'Unvalidated!'));
+            
+            setTimeout(() => {
+                validateBtn.html(originalContent);
+            }, 2000);
+        }
+    })
+    .catch(error => {
+        alert('Error updating validation: ' + error);
+    });
+}
+
+function updateValidationButton() {
+    const btn = $('#validateBtn');
+    const text = $('#validateBtnText');
+    
+    if (isValidated) {
+        btn.removeClass('btn-primary').addClass('btn-warning');
+        text.text('Remove Validation');
+        btn.find('i').removeClass('fa-check').addClass('fa-times');
+    } else {
+        btn.removeClass('btn-warning').addClass('btn-primary');
+        text.text('Mark as Validated');
+        btn.find('i').removeClass('fa-times').addClass('fa-check');
+    }
+}
+
+function exportCurrentPage() {
+    if (!currentFilePath) {
+        alert('No file loaded to export.');
+        return;
+    }
+    
+    fetch('/api/export', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            export_type: 'page',
+            export_scope: currentFilePath
+        })
+    })
+    .then(response => {
+        if (response.ok) {
+            return response.blob();
+        }
+        throw new Error('Export failed');
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        
+        const filename = currentFilePath.split('/').pop().replace('.json', '');
+        a.download = `page_${filename}_${new Date().toISOString().slice(0,19).replace(/:/g, '')}.zip`;
+        
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        // Show success message
+        const exportBtn = $('button:contains("Export Page")');
+        const originalText = exportBtn.html();
+        exportBtn.html('<i class="fas fa-check"></i> Exported!').removeClass('btn-info').addClass('btn-outline-info');
+        
+        setTimeout(() => {
+            exportBtn.html(originalText).removeClass('btn-outline-info').addClass('btn-info');
+        }, 2000);
+    })
+    .catch(error => {
+        alert('Error exporting page: ' + error.message);
     });
 }
 
@@ -673,6 +799,77 @@ function applyZoom() {
 }
 
 // Navigation functions
+function updateSidebarActiveState() {
+    if (currentFilePath) {
+        // Update active page in sidebar
+        document.querySelectorAll('.page-item').forEach(p => p.classList.remove('active'));
+        const activePageItem = document.querySelector(`[data-json-path="${currentFilePath}"]`);
+        if (activePageItem) {
+            activePageItem.classList.add('active');
+            
+            // Expand the parent folder
+            const folderItem = activePageItem.closest('.folder-item');
+            if (folderItem) {
+                document.querySelectorAll('.folder-item').forEach(f => f.classList.remove('active'));
+                folderItem.classList.add('active');
+            }
+        }
+    }
+}
+
+function updateCurrentPageInfo() {
+    if (currentFilePath && window.folderData) {
+        // Find current page info from folderData
+        for (const [folderName, files] of Object.entries(window.folderData)) {
+            const pageIndex = files.findIndex(f => f.json_path === currentFilePath);
+            if (pageIndex !== -1) {
+                const currentPage = pageIndex + 1;
+                const totalPages = files.length;
+                
+                $('#pageInfo').text(`Page ${currentPage} of ${totalPages}`);
+                $('#folderInfo').text(folderName);
+                
+                // Update navigation buttons
+                $('#prevBtn').prop('disabled', pageIndex === 0);
+                $('#nextBtn').prop('disabled', pageIndex === files.length - 1);
+                
+                return;
+            }
+        }
+    }
+}
+
+function navigateToAdjacentPage(direction) {
+    if (!currentFilePath || !window.folderData) return;
+    
+    // Find current page in folderData
+    for (const [folderName, files] of Object.entries(window.folderData)) {
+        const pageIndex = files.findIndex(f => f.json_path === currentFilePath);
+        if (pageIndex !== -1) {
+            let newIndex;
+            if (direction === 'next' && pageIndex < files.length - 1) {
+                newIndex = pageIndex + 1;
+            } else if (direction === 'prev' && pageIndex > 0) {
+                newIndex = pageIndex - 1;
+            } else {
+                return; // Can't navigate further
+            }
+            
+            const newFile = files[newIndex];
+            loadFileData(newFile.json_path, newFile.image_path);
+            
+            // Update URL
+            const newUrl = new URLSearchParams({
+                json_path: newFile.json_path,
+                image_path: newFile.image_path
+            });
+            window.history.pushState({}, '', '/editor?' + newUrl.toString());
+            
+            return;
+        }
+    }
+}
+
 function navigatePage(direction) {
     if (!currentFilePath || isUploaded) return;
     

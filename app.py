@@ -2,7 +2,11 @@ import os
 import json
 import yaml
 import re
-from flask import Flask, render_template, request, jsonify, send_from_directory
+import sqlite3
+import datetime
+import zipfile
+import io
+from flask import Flask, render_template, request, jsonify, send_from_directory, send_file
 from werkzeug.utils import secure_filename
 import uuid
 
@@ -12,6 +16,113 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # Create uploads directory if it doesn't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Database configuration
+DATABASE_PATH = 'ocr_editor.db'
+
+def init_database():
+    """Initialize the SQLite database with required tables"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # Create pages table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path TEXT UNIQUE NOT NULL,
+            folder_name TEXT NOT NULL,
+            page_name TEXT NOT NULL,
+            bbox_data TEXT NOT NULL,
+            is_validated BOOLEAN DEFAULT FALSE,
+            last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Create validation_log table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS validation_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            page_id INTEGER NOT NULL,
+            validated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (page_id) REFERENCES pages (id)
+        )
+    ''')
+    
+    # Create exports_log table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS exports_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            export_type TEXT NOT NULL,
+            export_scope TEXT NOT NULL,
+            file_count INTEGER NOT NULL,
+            exported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+def get_db_connection():
+    """Get database connection"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def save_page_to_db(file_path, folder_name, page_name, bbox_data):
+    """Save or update page data in database"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Convert bbox_data to JSON string
+    bbox_json = json.dumps(bbox_data)
+    
+    # Insert or update page
+    cursor.execute('''
+        INSERT OR REPLACE INTO pages (file_path, folder_name, page_name, bbox_data, last_modified)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (file_path, folder_name, page_name, bbox_json, datetime.datetime.now()))
+    
+    conn.commit()
+    conn.close()
+
+def get_page_from_db(file_path):
+    """Get page data from database"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM pages WHERE file_path = ?', (file_path,))
+    row = cursor.fetchone()
+    
+    conn.close()
+    
+    if row:
+        return {
+            'id': row['id'],
+            'file_path': row['file_path'],
+            'folder_name': row['folder_name'],
+            'page_name': row['page_name'],
+            'bbox_data': json.loads(row['bbox_data']),
+            'is_validated': bool(row['is_validated']),
+            'last_modified': row['last_modified'],
+            'created_at': row['created_at']
+        }
+    return None
+
+def get_validation_status(file_path):
+    """Get validation status for a file"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT is_validated FROM pages WHERE file_path = ?', (file_path,))
+    row = cursor.fetchone()
+    
+    conn.close()
+    
+    return bool(row['is_validated']) if row else False
+
+# Initialize database on startup
+init_database()
 
 # Layout categories as specified
 LAYOUT_CATEGORIES = [
@@ -85,7 +196,10 @@ def get_available_files(data_dir):
     for folder in files_by_folder:
         files_by_folder[folder].sort(key=lambda x: x['page_num'])
     
-    return files_by_folder
+    # Sort folders alphabetically
+    sorted_folders = dict(sorted(files_by_folder.items()))
+    
+    return sorted_folders
 
 @app.route('/')
 def index():
@@ -108,6 +222,25 @@ def load_file():
     if not file_path:
         return jsonify({'error': 'No file path provided'}), 400
     
+    # First try to get from database
+    db_data = get_page_from_db(file_path)
+    if db_data:
+        # Add unique IDs and reading order if not present
+        for i, item in enumerate(db_data['bbox_data']):
+            if 'id' not in item:
+                item['id'] = str(uuid.uuid4())
+            if 'reading_order' not in item:
+                item['reading_order'] = i
+        
+        return jsonify({
+            'data': db_data['bbox_data'],
+            'file_path': file_path,
+            'is_validated': db_data['is_validated'],
+            'last_modified': db_data['last_modified'],
+            'source': 'database'
+        })
+    
+    # Fall back to loading from file system
     full_path = os.path.join(config['data_dir'], file_path)
     
     if not os.path.exists(full_path):
@@ -124,39 +257,54 @@ def load_file():
             if 'reading_order' not in item:
                 item['reading_order'] = i
         
+        # Save to database for future use
+        folder_name = os.path.dirname(file_path).split('/')[-1] if '/' in file_path else 'Root'
+        page_name = os.path.basename(file_path).replace('.json', '')
+        save_page_to_db(file_path, folder_name, page_name, data)
+        
         return jsonify({
             'data': data,
-            'file_path': file_path
+            'file_path': file_path,
+            'is_validated': False,
+            'source': 'filesystem'
         })
     except Exception as e:
         return jsonify({'error': f'Error loading file: {str(e)}'}), 500
 
 @app.route('/api/save_file', methods=['POST'])
 def save_file():
-    """Save the edited JSON data back to file"""
+    """Save the edited JSON data to database and optionally to file"""
     data = request.json
     file_path = data.get('file_path')
     bbox_data = data.get('data')
+    save_to_filesystem = data.get('save_to_filesystem', False)
     
     if not file_path or not bbox_data:
         return jsonify({'error': 'Missing file path or data'}), 400
     
-    config = load_config()
-    full_path = os.path.join(config['data_dir'], file_path)
-    
     try:
-        # Remove temporary IDs and reading_order before saving if desired
-        clean_data = []
-        for item in bbox_data:
-            clean_item = {k: v for k, v in item.items() if k not in ['id']}
-            clean_data.append(clean_item)
+        # Save to database
+        folder_name = os.path.dirname(file_path).split('/')[-1] if '/' in file_path else 'Root'
+        page_name = os.path.basename(file_path).replace('.json', '')
+        save_page_to_db(file_path, folder_name, page_name, bbox_data)
         
-        with open(full_path, 'w') as f:
-            json.dump(clean_data, f, indent=2)
+        # Optionally save to filesystem
+        if save_to_filesystem:
+            config = load_config()
+            full_path = os.path.join(config['data_dir'], file_path)
+            
+            # Remove temporary IDs and reading_order before saving to file
+            clean_data = []
+            for item in bbox_data:
+                clean_item = {k: v for k, v in item.items() if k not in ['id']}
+                clean_data.append(clean_item)
+            
+            with open(full_path, 'w') as f:
+                json.dump(clean_data, f, indent=2)
         
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'saved_to_db': True, 'saved_to_file': save_to_filesystem})
     except Exception as e:
-        return jsonify({'error': f'Error saving file: {str(e)}'}), 500
+        return jsonify({'error': f'Error saving: {str(e)}'}), 500
 
 @app.route('/api/upload', methods=['POST'])
 def upload_files():
@@ -266,6 +414,181 @@ def serve_image(filename):
         return send_from_directory(directory, filename)
     
     return "Image not found", 404
+
+@app.route('/api/validate_page', methods=['POST'])
+def validate_page():
+    """Mark a page as validated"""
+    data = request.json
+    file_path = data.get('file_path')
+    is_validated = data.get('is_validated', True)
+    
+    if not file_path:
+        return jsonify({'error': 'Missing file path'}), 400
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Update validation status
+        cursor.execute('''
+            UPDATE pages SET is_validated = ? WHERE file_path = ?
+        ''', (is_validated, file_path))
+        
+        if cursor.rowcount == 0:
+            return jsonify({'error': 'Page not found in database'}), 404
+        
+        # Log validation if marking as validated
+        if is_validated:
+            cursor.execute('''
+                INSERT INTO validation_log (page_id)
+                SELECT id FROM pages WHERE file_path = ?
+            ''', (file_path,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'is_validated': is_validated})
+    except Exception as e:
+        return jsonify({'error': f'Error updating validation: {str(e)}'}), 500
+
+@app.route('/api/export', methods=['POST'])
+def export_data():
+    """Export data (page, folder, or entire project)"""
+    data = request.json
+    export_type = data.get('export_type')  # 'page', 'folder', 'project'
+    export_scope = data.get('export_scope')  # file_path for page, folder_name for folder
+    
+    if not export_type:
+        return jsonify({'error': 'Missing export type'}), 400
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Prepare export data
+        if export_type == 'page':
+            if not export_scope:
+                return jsonify({'error': 'Missing file path for page export'}), 400
+            
+            cursor.execute('SELECT * FROM pages WHERE file_path = ?', (export_scope,))
+            pages = cursor.fetchall()
+            export_name = f"page_{os.path.basename(export_scope).replace('.json', '')}"
+            
+        elif export_type == 'folder':
+            if not export_scope:
+                return jsonify({'error': 'Missing folder name for folder export'}), 400
+            
+            cursor.execute('SELECT * FROM pages WHERE folder_name = ?', (export_scope,))
+            pages = cursor.fetchall()
+            export_name = f"folder_{export_scope}"
+            
+        elif export_type == 'project':
+            cursor.execute('SELECT * FROM pages')
+            pages = cursor.fetchall()
+            export_name = "entire_project"
+            
+        else:
+            return jsonify({'error': 'Invalid export type'}), 400
+        
+        if not pages:
+            return jsonify({'error': 'No data found for export'}), 404
+        
+        # Create ZIP file in memory
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for page in pages:
+                # Add JSON data
+                json_filename = f"{page['page_name']}.json"
+                clean_data = []
+                bbox_data = json.loads(page['bbox_data'])
+                
+                for item in bbox_data:
+                    clean_item = {k: v for k, v in item.items() if k not in ['id']}
+                    clean_data.append(clean_item)
+                
+                zip_file.writestr(json_filename, json.dumps(clean_data, indent=2))
+                
+                # Add metadata
+                metadata = {
+                    'file_path': page['file_path'],
+                    'folder_name': page['folder_name'],
+                    'page_name': page['page_name'],
+                    'is_validated': bool(page['is_validated']),
+                    'last_modified': page['last_modified'],
+                    'created_at': page['created_at']
+                }
+                
+                metadata_filename = f"{page['page_name']}_metadata.json"
+                zip_file.writestr(metadata_filename, json.dumps(metadata, indent=2))
+        
+        # Log export
+        cursor.execute('''
+            INSERT INTO exports_log (export_type, export_scope, file_count)
+            VALUES (?, ?, ?)
+        ''', (export_type, export_scope or 'all', len(pages)))
+        
+        conn.commit()
+        conn.close()
+        
+        zip_buffer.seek(0)
+        
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=f"{export_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        )
+        
+    except Exception as e:
+        return jsonify({'error': f'Error exporting data: {str(e)}'}), 500
+
+@app.route('/api/folders')
+def get_folders():
+    """Get folder structure for sidebar"""
+    try:
+        config = load_config()
+        files_by_folder = get_available_files(config['data_dir'])
+        return jsonify(files_by_folder)
+    except Exception as e:
+        return jsonify({'error': f'Error getting folders: {str(e)}'}), 500
+
+@app.route('/api/stats')
+def get_stats():
+    """Get project statistics"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get overall stats
+        cursor.execute('SELECT COUNT(*) as total_pages FROM pages')
+        total_pages = cursor.fetchone()['total_pages']
+        
+        cursor.execute('SELECT COUNT(*) as validated_pages FROM pages WHERE is_validated = 1')
+        validated_pages = cursor.fetchone()['validated_pages']
+        
+        # Get folder stats
+        cursor.execute('''
+            SELECT folder_name, 
+                   COUNT(*) as total,
+                   SUM(CASE WHEN is_validated = 1 THEN 1 ELSE 0 END) as validated
+            FROM pages 
+            GROUP BY folder_name
+            ORDER BY folder_name
+        ''')
+        folder_stats = [dict(row) for row in cursor.fetchall()]
+        
+        conn.close()
+        
+        return jsonify({
+            'total_pages': total_pages,
+            'validated_pages': validated_pages,
+            'validation_percentage': round((validated_pages / total_pages * 100) if total_pages > 0 else 0, 1),
+            'folder_stats': folder_stats
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Error getting stats: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=7090)
