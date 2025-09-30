@@ -47,19 +47,49 @@
     <!-- Image Editor -->
     <div class="col-md-5 col-lg-6">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5><i class="fas fa-image"></i> Image Editor</h5>
-                <div>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="zoomIn()">
-                        <i class="fas fa-search-plus"></i>
-                    </button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="zoomOut()">
-                        <i class="fas fa-search-minus"></i>
-                    </button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="resetZoom()">
-                        <i class="fas fa-expand-arrows-alt"></i>
-                    </button>
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5><i class="fas fa-image"></i> Document Editor</h5>
+                    <div>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="zoomIn()">
+                            <i class="fas fa-search-plus"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="zoomOut()">
+                            <i class="fas fa-search-minus"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="resetZoom()">
+                            <i class="fas fa-expand-arrows-alt"></i>
+                        </button>
+                    </div>
                 </div>
+                
+                <!-- Editor Mode Tabs -->
+                <ul class="nav nav-tabs" id="editorTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="visual-tab" data-bs-toggle="tab" data-bs-target="#visual-pane" 
+                                type="button" role="tab" onclick="switchEditorMode('visual')">
+                            <i class="fas fa-vector-square"></i> Visual
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="text-tab" data-bs-toggle="tab" data-bs-target="#text-pane" 
+                                type="button" role="tab" onclick="switchEditorMode('text')">
+                            <i class="fas fa-edit"></i> Text Overlay
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="markdown-tab" data-bs-toggle="tab" data-bs-target="#markdown-pane" 
+                                type="button" role="tab" onclick="switchEditorMode('markdown')">
+                            <i class="fas fa-code"></i> Markdown
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="viewer-tab" data-bs-toggle="tab" data-bs-target="#viewer-pane" 
+                                type="button" role="tab" onclick="switchEditorMode('viewer')">
+                            <i class="fas fa-eye"></i> Viewer
+                        </button>
+                    </li>
+                </ul>
             </div>
             <div class="card-body">
                 <!-- Navigation Controls -->
@@ -81,9 +111,71 @@
                         <small class="text-muted">Use sidebar for folder navigation</small>
                     </div>
                 </div>
-                <div class="image-container" id="imageContainer">
-                    <img id="mainImage" src="" alt="Document" style="max-width: 100%; height: auto;">
-                    <!-- Bounding box overlays will be added here dynamically -->
+                
+                <!-- Tab Content -->
+                <div class="tab-content" id="editorTabContent">
+                    <!-- Visual Editor Tab -->
+                    <div class="tab-pane fade show active" id="visual-pane" role="tabpanel">
+                        <div class="image-container" id="imageContainer">
+                            <img id="mainImage" src="" alt="Document" style="max-width: 100%; height: auto;">
+                            <!-- Bounding box overlays will be added here dynamically -->
+                        </div>
+                    </div>
+                    
+                    <!-- Text Overlay Editor Tab -->
+                    <div class="tab-pane fade" id="text-pane" role="tabpanel">
+                        <div class="text-overlay-container" id="textOverlayContainer">
+                            <div class="position-relative">
+                                <img id="textOverlayImage" src="" alt="Document" style="max-width: 100%; height: auto; opacity: 0.3;">
+                                <div id="textOverlays">
+                                    <!-- Text overlays will be positioned here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Markdown Editor Tab -->
+                    <div class="tab-pane fade" id="markdown-pane" role="tabpanel">
+                        <div class="markdown-editor" id="markdownEditor">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6>Section-based Markdown Editor</h6>
+                                <div>
+                                    <button class="btn btn-primary btn-sm me-2" onclick="updateMarkdownFromText()">
+                                        <i class="fas fa-sync"></i> Sync from Text
+                                    </button>
+                                    <button class="btn btn-success btn-sm" onclick="saveMarkdownChanges()">
+                                        <i class="fas fa-save"></i> Save All Changes
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="markdownSections" style="max-height: 500px; overflow-y: auto;">
+                                <!-- Individual section cards will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Viewer Tab -->
+                    <div class="tab-pane fade" id="viewer-pane" role="tabpanel">
+                        <div class="viewer-container" id="viewerContainer">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6>Document Viewer</h6>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <input type="radio" class="btn-check" name="viewerMode" id="viewerMarkdown" autocomplete="off" checked>
+                                    <label class="btn btn-outline-secondary" for="viewerMarkdown" onclick="setViewerMode('markdown')">
+                                        <i class="fas fa-code"></i> Markdown
+                                    </label>
+                                    
+                                    <input type="radio" class="btn-check" name="viewerMode" id="viewerWebpage" autocomplete="off">
+                                    <label class="btn btn-outline-secondary" for="viewerWebpage" onclick="setViewerMode('webpage')">
+                                        <i class="fas fa-globe"></i> Web View
+                                    </label>
+                                </div>
+                            </div>
+                            <div id="viewerContent" style="height: 500px; overflow-y: auto; border: 1px solid #dee2e6; padding: 20px;">
+                                <!-- Viewer content will appear here -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -122,6 +214,9 @@ let groups = {};
 let nextGroupId = 1;
 let currentPageInfo = null;
 let isValidated = false;
+let currentEditorMode = 'visual';
+let markdownContent = '';
+let viewerMode = 'markdown';
 
 // Categories from Flask app
 const categories = {{ categories | tojson }};
@@ -136,6 +231,26 @@ $(document).ready(function() {
     if (jsonPath && imagePath) {
         currentImagePath = imagePath;
         loadFileData(jsonPath, imagePath);
+        
+        // Set up tab click handlers to track current mode
+        $('#editorTabs button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
+            const targetTab = $(e.target).attr('data-bs-target');
+            switch(targetTab) {
+                case '#visual-pane':
+                    currentEditorMode = 'visual';
+                    break;
+                case '#text-pane':
+                    currentEditorMode = 'text';
+                    break;
+                case '#markdown-pane':
+                    currentEditorMode = 'markdown';
+                    break;
+                case '#viewer-pane':
+                    currentEditorMode = 'viewer';
+                    break;
+            }
+            switchEditorMode(currentEditorMode);
+        });
     }
     
     // Initialize sortable for reading order
@@ -199,18 +314,23 @@ function renderBoundingBoxes() {
     const img = $('#mainImage')[0];
     const container = $('#imageContainer');
     
-    // Wait for image to load
-    img.onload = function() {
+    const renderOverlays = () => {
         bboxData.forEach((bbox, index) => {
             createBboxOverlay(bbox, index);
         });
+        
+        // Update other editor modes after main image is loaded
+        setTimeout(() => {
+            updateAllEditorModes();
+        }, 100);
     };
+    
+    // Wait for image to load
+    img.onload = renderOverlays;
     
     // If image is already loaded
     if (img.complete) {
-        bboxData.forEach((bbox, index) => {
-            createBboxOverlay(bbox, index);
-        });
+        renderOverlays();
     }
 }
 
@@ -856,7 +976,13 @@ function navigateToAdjacentPage(direction) {
             }
             
             const newFile = files[newIndex];
+            currentImagePath = newFile.image_path;
             loadFileData(newFile.json_path, newFile.image_path);
+            
+            // Ensure current editor mode is refreshed after navigation
+            setTimeout(() => {
+                switchEditorMode(currentEditorMode);
+            }, 200);
             
             // Update URL
             const newUrl = new URLSearchParams({
@@ -896,6 +1022,11 @@ function navigatePage(direction) {
                 
                 // Load new data
                 loadFileData(data.json_path, data.image_path);
+                
+                // Refresh current editor mode after navigation
+                setTimeout(() => {
+                    switchEditorMode(currentEditorMode);
+                }, 200);
             }
         })
         .catch(error => {
@@ -971,6 +1102,342 @@ function displayPageInfo() {
     }
 }
 
+// Editor Mode Functions
+function switchEditorMode(mode) {
+    currentEditorMode = mode;
+    
+    // Always update all modes when switching to ensure consistency
+    updateAllEditorModes();
+}
+
+function updateAllEditorModes() {
+    // Ensure main image is loaded first
+    const mainImg = $('#mainImage')[0];
+    
+    const doUpdate = () => {
+        // Update text overlay image source
+        updateTextOverlayImage();
+        
+        // Update content for all modes
+        updateTextOverlays();
+        updateMarkdownFromText();
+        updateViewer();
+    };
+    
+    if (mainImg && mainImg.complete && mainImg.naturalWidth > 0) {
+        // Image is already loaded
+        doUpdate();
+    } else if (mainImg) {
+        // Wait for image to load
+        mainImg.onload = doUpdate;
+        // Also try after a short delay in case the event was missed
+        setTimeout(doUpdate, 100);
+    } else {
+        // No main image, update what we can
+        updateMarkdownFromText();
+        updateViewer();
+    }
+}
+
+function updateTextOverlayImage() {
+    const mainImageSrc = $('#mainImage').attr('src');
+    if (mainImageSrc) {
+        $('#textOverlayImage').attr('src', mainImageSrc);
+    }
+}
+
+function updateTextOverlays() {
+    const container = $('#textOverlays');
+    const img = $('#textOverlayImage')[0];
+    
+    container.empty();
+    
+    if (!bboxData.length) return;
+    
+    // Ensure the text overlay image has the same source as main image
+    updateTextOverlayImage();
+    
+    // Wait for image to load
+    const renderOverlays = () => {
+        if (!img.naturalWidth || !img.naturalHeight) return;
+        
+        const scaleX = img.clientWidth / img.naturalWidth;
+        const scaleY = img.clientHeight / img.naturalHeight;
+        
+        // Sort by reading order
+        const sortedData = bboxData
+            .filter(bbox => bbox.text && bbox.text.trim())
+            .sort((a, b) => (a.reading_order || 0) - (b.reading_order || 0));
+        
+        sortedData.forEach((bbox, index) => {
+            const [x1, y1, x2, y2] = bbox.bbox;
+            const left = x1 * scaleX;
+            const top = y1 * scaleY;
+            const width = (x2 - x1) * scaleX;
+            const height = (y2 - y1) * scaleY;
+            
+            const textOverlay = $(`
+                <div class="text-overlay-item" 
+                     data-bbox-index="${bboxData.indexOf(bbox)}"
+                     contenteditable="true"
+                     style="left: ${left}px; top: ${top}px; width: ${width}px; height: ${height}px;">
+                    ${bbox.text || ''}
+                </div>
+            `);
+            
+            // Handle text editing
+            textOverlay.on('focus', function() {
+                $(this).addClass('editing');
+            });
+            
+            textOverlay.on('blur', function() {
+                $(this).removeClass('editing');
+                const bboxIndex = parseInt($(this).data('bbox-index'));
+                const newText = $(this).text();
+                if (bboxData[bboxIndex]) {
+                    bboxData[bboxIndex].text = newText;
+                    updateBboxList();
+                }
+            });
+            
+            textOverlay.on('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    $(this).blur();
+                }
+            });
+            
+            container.append(textOverlay);
+        });
+    };
+    
+    if (img.complete) {
+        renderOverlays();
+    } else {
+        img.onload = renderOverlays;
+    }
+}
+
+function updateMarkdownFromText() {
+    const container = $('#markdownSections');
+    container.empty();
+    
+    if (!bboxData.length) {
+        container.html('<div class="text-muted text-center p-4">No text content available</div>');
+        return;
+    }
+    
+    // Sort by reading order
+    const sortedData = bboxData
+        .filter(bbox => bbox.text && bbox.text.trim())
+        .sort((a, b) => (a.reading_order || 0) - (b.reading_order || 0));
+    
+    sortedData.forEach((bbox, index) => {
+        const text = bbox.text.trim();
+        const category = bbox.category;
+        const originalIndex = bboxData.indexOf(bbox);
+        
+        // Generate markdown for this section based on category
+        let markdown = '';
+        let categoryClass = 'secondary';
+        
+        switch(category) {
+            case 'Title':
+                markdown = `# ${text}`;
+                categoryClass = 'primary';
+                break;
+            case 'Section-header':
+                markdown = `## ${text}`;
+                categoryClass = 'info';
+                break;
+            case 'List-item':
+                markdown = `- ${text}`;
+                categoryClass = 'warning';
+                break;
+            case 'Formula':
+                markdown = `\`\`\`\n${text}\n\`\`\``;
+                categoryClass = 'dark';
+                break;
+            case 'Caption':
+                markdown = `*${text}*`;
+                categoryClass = 'light';
+                break;
+            case 'Footnote':
+                markdown = `> ${text}`;
+                categoryClass = 'secondary';
+                break;
+            case 'Page-header':
+            case 'Page-footer':
+                markdown = `---\n${text}\n---`;
+                categoryClass = 'secondary';
+                break;
+            default:
+                markdown = text;
+                categoryClass = 'success';
+        }
+        
+        const sectionCard = $(`
+            <div class="markdown-section-card" data-bbox-index="${originalIndex}">
+                <div class="markdown-section-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="reading-order-badge">${index + 1}</span>
+                            <span class="badge bg-${categoryClass} category-badge">${category}</span>
+                        </div>
+                        <div>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="moveSection(${originalIndex}, 'up')" 
+                                    ${index === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-arrow-up"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="moveSection(${originalIndex}, 'down')" 
+                                    ${index === sortedData.length - 1 ? 'disabled' : ''}>
+                                <i class="fas fa-arrow-down"></i>
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="deleteSection(${originalIndex})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="markdown-section-content">
+                    <textarea class="form-control markdown-section-textarea" 
+                              data-bbox-index="${originalIndex}"
+                              placeholder="Enter markdown for this section..."
+                              rows="${Math.max(2, Math.ceil(markdown.length / 50))}">${markdown}</textarea>
+                </div>
+            </div>
+        `);
+        
+        container.append(sectionCard);
+    });
+    
+    // Add event listeners for textarea changes
+    $('.markdown-section-textarea').on('input', function() {
+        const bboxIndex = parseInt($(this).data('bbox-index'));
+        const markdownText = $(this).val();
+        
+        // Convert markdown back to plain text for the bbox
+        const plainText = markdownText
+            .replace(/^#{1,6}\s+/, '') // Remove headers
+            .replace(/^\-\s+/, '') // Remove list items
+            .replace(/^\>\s+/, '') // Remove blockquotes
+            .replace(/^\*(.+)\*$/, '$1') // Remove emphasis
+            .replace(/^---\n?/, '').replace(/\n?---$/, '') // Remove horizontal rules
+            .replace(/```\n?/, '').replace(/\n?```/, '') // Remove code blocks
+            .trim();
+        
+        if (bboxData[bboxIndex]) {
+            bboxData[bboxIndex].text = plainText;
+            
+            // Update viewer in real-time
+            updateViewer();
+        }
+    });
+}
+
+function saveMarkdownChanges() {
+    // All changes are already saved in real-time via textarea input events
+    // Just update other components and save to database
+    updateBboxList();
+    updateTextOverlays();
+    updateViewer();
+    
+    // Save to database
+    saveFile();
+    
+    // Show success feedback
+    const saveBtn = $('button:contains("Save All Changes")');
+    const originalText = saveBtn.html();
+    saveBtn.html('<i class="fas fa-check"></i> Saved!').removeClass('btn-success').addClass('btn-outline-success');
+    
+    setTimeout(() => {
+        saveBtn.html(originalText).removeClass('btn-outline-success').addClass('btn-success');
+    }, 2000);
+}
+
+function moveSection(bboxIndex, direction) {
+    const currentOrder = bboxData[bboxIndex].reading_order || 0;
+    
+    // Find the section to swap with
+    let swapIndex = -1;
+    if (direction === 'up') {
+        // Find previous section in reading order
+        for (let i = 0; i < bboxData.length; i++) {
+            if (i !== bboxIndex && (bboxData[i].reading_order || 0) === currentOrder - 1) {
+                swapIndex = i;
+                break;
+            }
+        }
+    } else {
+        // Find next section in reading order
+        for (let i = 0; i < bboxData.length; i++) {
+            if (i !== bboxIndex && (bboxData[i].reading_order || 0) === currentOrder + 1) {
+                swapIndex = i;
+                break;
+            }
+        }
+    }
+    
+    if (swapIndex !== -1) {
+        // Swap reading orders
+        const tempOrder = bboxData[bboxIndex].reading_order;
+        bboxData[bboxIndex].reading_order = bboxData[swapIndex].reading_order;
+        bboxData[swapIndex].reading_order = tempOrder;
+        
+        // Update all views
+        updateMarkdownFromText();
+        updateBboxList();
+        updateTextOverlays();
+    }
+}
+
+function deleteSection(bboxIndex) {
+    if (!confirm('Are you sure you want to delete this section?')) return;
+    
+    // Remove the bounding box
+    bboxData.splice(bboxIndex, 1);
+    
+    // Update reading order for remaining items
+    bboxData.forEach((bbox, index) => {
+        bbox.reading_order = index;
+    });
+    
+    // Update all views
+    updateMarkdownFromText();
+    updateBboxList();
+    updateTextOverlays();
+    renderBoundingBoxes();
+}
+
+function updateViewer() {
+    const content = $('#viewerContent');
+    
+    // Generate markdown from current sections
+    let fullMarkdown = '';
+    $('.markdown-section-textarea').each(function() {
+        const sectionMarkdown = $(this).val().trim();
+        if (sectionMarkdown) {
+            fullMarkdown += sectionMarkdown + '\n\n';
+        }
+    });
+    
+    if (viewerMode === 'markdown') {
+        // Show raw markdown
+        content.html(`<pre style="white-space: pre-wrap; font-family: 'Courier New', monospace;">${fullMarkdown}</pre>`);
+    } else {
+        // Show rendered HTML
+        const html = marked.parse(fullMarkdown);
+        content.html(`<div class="viewer-content">${html}</div>`);
+    }
+}
+
+function setViewerMode(mode) {
+    viewerMode = mode;
+    updateViewer();
+}
+
+// Remove old markdown textarea reference - now handled in updateMarkdownFromText()
+
 // Keyboard shortcuts
 $(document).keydown(function(e) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -988,6 +1455,30 @@ $(document).keydown(function(e) {
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 saveFile();
+            }
+            break;
+        case '1':
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                $('#visual-tab').click();
+            }
+            break;
+        case '2':
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                $('#text-tab').click();
+            }
+            break;
+        case '3':
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                $('#markdown-tab').click();
+            }
+            break;
+        case '4':
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                $('#viewer-tab').click();
             }
             break;
     }
