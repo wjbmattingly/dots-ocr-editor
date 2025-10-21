@@ -7,6 +7,8 @@ A Flask web application for editing OCR output, allowing users to:
 - Group bounding boxes together
 - Change layout categories
 
+![Demo](assets/demo.png)
+
 ## Features
 
 ### File Loading & Organization
