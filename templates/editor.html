@@ -12,7 +12,7 @@
             </div>
             <div class="card-body">
                 <button class="btn btn-success btn-sm w-100 mb-2" onclick="saveFile()">
-                    <i class="fas fa-save"></i> Save Changes
+                    <i class="fas fa-save"></i> Save Now (Auto-save: ON)
                 </button>
                 <button class="btn btn-primary btn-sm w-100 mb-2" id="validateBtn" onclick="toggleValidation()">
                     <i class="fas fa-check"></i> <span id="validateBtnText">Mark as Validated</span>
@@ -32,6 +32,12 @@
                 <button class="btn btn-danger btn-sm w-100" onclick="deleteSelected()">
                     <i class="fas fa-trash"></i> Delete Selected
                 </button>
+                
+                <hr>
+                
+                <div id="selectionInfo" class="text-center small text-muted">
+                    <span id="selectionCount">0 boxes selected</span>
+                </div>
                 
                 <hr>
                 
@@ -218,6 +224,17 @@ let currentEditorMode = 'visual';
 let markdownContent = '';
 let viewerMode = 'markdown';
 
+// Multi-selection variables
+let isSelecting = false;
+let selectionStart = {x: 0, y: 0};
+let selectionBox = null;
+let multiSelectedBoxes = [];
+let justFinishedDrag = false;
+
+// Auto-save functionality
+let autoSaveTimeout = null;
+const AUTO_SAVE_DELAY = 500; // 500ms delay after last change
+
 // Categories from Flask app
 const categories = {{ categories | tojson }};
 
@@ -299,6 +316,9 @@ function loadFileData(jsonPath, imagePath) {
                 
                 renderBoundingBoxes();
                 updateBboxList();
+                
+                // Initialize drag selection after boxes are rendered
+                initializeDragSelection();
             }
         })
         .catch(error => {
@@ -322,6 +342,10 @@ function renderBoundingBoxes() {
         // Update other editor modes after main image is loaded
         setTimeout(() => {
             updateAllEditorModes();
+            // Reinitialize drag selection after boxes are rendered
+            initializeDragSelection();
+            // Update reading order numbers
+            updateReadingOrderNumbers();
         }, 100);
     };
     
@@ -371,6 +395,23 @@ function createBboxOverlay(bbox, index) {
     
     container.append(overlay);
     
+    // Add reading order number
+    const readingOrderNumber = $(`<div class="reading-order-number">${bbox.reading_order || index + 1}</div>`);
+    overlay.append(readingOrderNumber);
+    
+    // Add reading order controls
+    const readingOrderControls = $(`
+        <div class="reading-order-controls">
+            <button class="reading-order-btn" onclick="moveReadingOrder(${index}, 'up')" title="Move up in reading order">
+                <i class="fas fa-chevron-up"></i>
+            </button>
+            <button class="reading-order-btn" onclick="moveReadingOrder(${index}, 'down')" title="Move down in reading order">
+                <i class="fas fa-chevron-down"></i>
+            </button>
+        </div>
+    `);
+    overlay.append(readingOrderControls);
+    
     // Make draggable and resizable
     makeDraggable(overlay[0], index);
     makeResizable(overlay[0], index);
@@ -378,7 +419,14 @@ function createBboxOverlay(bbox, index) {
     // Click handler
     overlay.click(function(e) {
         e.stopPropagation();
-        selectBbox(index, e.ctrlKey || e.metaKey);
+        
+        if (e.ctrlKey || e.metaKey) {
+            // Multi-select with Cmd/Ctrl+click
+            toggleBboxSelection(index);
+        } else {
+            // Single select
+            selectBbox(index, false);
+        }
     });
 }
 
@@ -510,6 +558,7 @@ function updateBboxFromOverlay(element, index) {
     
     updateBboxList();
     updatePropertiesPanel();
+    autoSave(); // Auto-save after bbox modification
 }
 
 function selectBbox(index, multiSelect = false) {
@@ -564,7 +613,11 @@ function updateBboxList() {
         `);
         
         item.click(function(e) {
-            selectBbox(bbox.originalIndex, e.ctrlKey || e.metaKey);
+            if (e.ctrlKey || e.metaKey) {
+                toggleBboxSelection(bbox.originalIndex);
+            } else {
+                selectBbox(bbox.originalIndex, false);
+            }
         });
         
         list.append(item);
@@ -575,8 +628,12 @@ function updateReadingOrder() {
     const items = $('#bboxList .bbox-item');
     items.each(function(index) {
         const bboxIndex = parseInt($(this).data('index'));
-        bboxData[bboxIndex].reading_order = index;
+        bboxData[bboxIndex].reading_order = index + 1; // Reading order starts from 1
     });
+    
+    // Update visual reading order numbers
+    updateReadingOrderNumbers();
+    autoSave();
 }
 
 function updatePropertiesPanel() {
@@ -663,6 +720,7 @@ function applyProperties() {
     
     renderBoundingBoxes();
     updateBboxList();
+    autoSave(); // Auto-save property changes
 }
 
 function applyBulkProperties() {
@@ -677,6 +735,7 @@ function applyBulkProperties() {
     renderBoundingBoxes();
     updateBboxList();
     updatePropertiesPanel();
+    autoSave(); // Auto-save bulk changes
 }
 
 function groupSelected() {
@@ -693,6 +752,7 @@ function groupSelected() {
     groups[groupId] = [...selectedBboxes];
     renderBoundingBoxes();
     updateBboxList();
+    autoSave(); // Auto-save grouping changes
 }
 
 function ungroupSelected() {
@@ -706,6 +766,7 @@ function ungroupSelected() {
     
     renderBoundingBoxes();
     updateBboxList();
+    autoSave(); // Auto-save ungrouping changes
 }
 
 function deleteSelected() {
@@ -724,6 +785,7 @@ function deleteSelected() {
     renderBoundingBoxes();
     updateBboxList();
     updatePropertiesPanel();
+    autoSave(); // Auto-save deletion changes
 }
 
 function addBoundingBox() {
@@ -737,6 +799,7 @@ function addBoundingBox() {
     bboxData.push(newBbox);
     renderBoundingBoxes();
     updateBboxList();
+    autoSave(); // Auto-save new bounding box
 }
 
 function saveFile() {
@@ -781,6 +844,45 @@ function saveFile() {
     .catch(error => {
         $('#loadingDiv').addClass('d-none');
         alert('Error saving file: ' + error);
+    });
+}
+
+function autoSave() {
+    // Clear any existing timeout
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+    }
+    
+    // Set a new timeout to save after delay
+    autoSaveTimeout = setTimeout(() => {
+        console.log('Auto-saving changes...');
+        saveFileQuiet(); // Use quiet version for auto-save
+    }, AUTO_SAVE_DELAY);
+}
+
+function saveFileQuiet() {
+    if (!currentFilePath) return;
+    
+    fetch('/api/save_file', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            file_path: currentFilePath,
+            data: bboxData
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            console.error('Auto-save error:', data.error);
+        } else {
+            console.log('Auto-saved successfully');
+        }
+    })
+    .catch(error => {
+        console.error('Auto-save error:', error);
     });
 }
 
@@ -1197,6 +1299,7 @@ function updateTextOverlays() {
                 if (bboxData[bboxIndex]) {
                     bboxData[bboxIndex].text = newText;
                     updateBboxList();
+                    autoSave(); // Auto-save text overlay changes
                 }
             });
             
@@ -1331,6 +1434,9 @@ function updateMarkdownFromText() {
             
             // Update viewer in real-time
             updateViewer();
+            
+            // Auto-save text changes
+            autoSave();
         }
     });
 }
@@ -1343,7 +1449,7 @@ function saveMarkdownChanges() {
     updateViewer();
     
     // Save to database
-    saveFile();
+    autoSave();
     
     // Show success feedback
     const saveBtn = $('button:contains("Save All Changes")');
@@ -1436,6 +1542,321 @@ function setViewerMode(mode) {
     updateViewer();
 }
 
+// Multi-selection functions
+function initializeDragSelection() {
+    const container = $('#imageContainer');
+    
+    console.log('Initializing drag selection on container:', container.length);
+    
+    // Remove existing handlers to avoid duplicates
+    container.off('mousedown.dragselect');
+    $(document).off('mousemove.dragselect mouseup.dragselect');
+    
+    container.on('mousedown.dragselect', function(e) {
+        console.log('Mouse down on container, target:', e.target.tagName, e.target.className);
+        // Only start drag selection if clicking on the container itself, not on a bbox
+        if (e.target === this || e.target.tagName === 'IMG') {
+            console.log('Starting drag selection from container click');
+            startDragSelection(e);
+        }
+    });
+    
+    $(document).on('mousemove.dragselect', function(e) {
+        if (isSelecting) {
+            updateDragSelection(e);
+        }
+    });
+    
+    $(document).on('mouseup.dragselect', function(e) {
+        if (isSelecting) {
+            endDragSelection(e);
+        }
+    });
+}
+
+function startDragSelection(e) {
+    if (e.ctrlKey || e.metaKey) return; // Don't start drag selection with modifier keys
+    
+    console.log('Starting drag selection');
+    isSelecting = true;
+    const container = $('#imageContainer');
+    const containerOffset = container.offset();
+    
+    selectionStart = {
+        x: e.pageX - containerOffset.left,
+        y: e.pageY - containerOffset.top
+    };
+    
+    console.log('Selection start:', selectionStart);
+    
+    // Clear previous selection if not holding Shift
+    if (!e.shiftKey) {
+        clearMultiSelection();
+    }
+    
+    // Create selection box
+    selectionBox = $('<div class="selection-box"></div>');
+    container.append(selectionBox);
+    
+    // Prevent text selection
+    e.preventDefault();
+}
+
+function updateDragSelection(e) {
+    if (!isSelecting || !selectionBox) return;
+    
+    const container = $('#imageContainer');
+    const containerOffset = container.offset();
+    
+    const currentX = e.pageX - containerOffset.left;
+    const currentY = e.pageY - containerOffset.top;
+    
+    const left = Math.min(selectionStart.x, currentX);
+    const top = Math.min(selectionStart.y, currentY);
+    const width = Math.abs(currentX - selectionStart.x);
+    const height = Math.abs(currentY - selectionStart.y);
+    
+    selectionBox.css({
+        left: left + 'px',
+        top: top + 'px',
+        width: width + 'px',
+        height: height + 'px'
+    });
+    
+    // Highlight overlapping bounding boxes
+    highlightOverlappingBoxes(left, top, width, height);
+}
+
+function endDragSelection(e) {
+    if (!isSelecting) return;
+    
+    console.log('Ending drag selection, selected boxes:', multiSelectedBoxes);
+    isSelecting = false;
+    
+    // Set flag to prevent immediate clearing by click outside handler
+    justFinishedDrag = true;
+    
+    // Remove selection box
+    if (selectionBox) {
+        selectionBox.remove();
+        selectionBox = null;
+    }
+    
+    // Finalize selection - make sure selectedBboxes is updated
+    selectedBboxes = [...multiSelectedBoxes];
+    
+    // Update visual indicators
+    updateVisualSelection();
+    updateSelectionCounter();
+    updatePropertiesPanel();
+    
+    console.log('Final selection state:', selectedBboxes, multiSelectedBoxes);
+    
+    // Clear the flag after a short delay
+    setTimeout(() => {
+        justFinishedDrag = false;
+    }, 100);
+}
+
+function highlightOverlappingBoxes(selectionLeft, selectionTop, selectionWidth, selectionHeight) {
+    // Start fresh for this drag operation
+    let dragSelectedBoxes = [];
+    
+    $('.bbox-overlay').each(function() {
+        const bbox = $(this);
+        const bboxLeft = parseInt(bbox.css('left'));
+        const bboxTop = parseInt(bbox.css('top'));
+        const bboxWidth = parseInt(bbox.css('width'));
+        const bboxHeight = parseInt(bbox.css('height'));
+        
+        // Check if bounding boxes overlap
+        const overlap = !(selectionLeft > bboxLeft + bboxWidth ||
+                         selectionLeft + selectionWidth < bboxLeft ||
+                         selectionTop > bboxTop + bboxHeight ||
+                         selectionTop + selectionHeight < bboxTop);
+        
+        const index = parseInt(bbox.data('index'));
+        
+        if (overlap) {
+            bbox.addClass('multi-selected');
+            dragSelectedBoxes.push(index);
+        } else {
+            bbox.removeClass('multi-selected');
+        }
+    });
+    
+    // Update the selection array with drag results
+    multiSelectedBoxes = dragSelectedBoxes;
+    
+    // Debug log
+    console.log('Drag selection - overlapping boxes:', multiSelectedBoxes);
+}
+
+function toggleBboxSelection(index) {
+    console.log('Toggling bbox selection for index:', index);
+    const bbox = $(`.bbox-overlay[data-index="${index}"]`);
+    const isCurrentlySelected = multiSelectedBoxes.includes(index);
+    
+    console.log('Currently selected:', isCurrentlySelected, 'Multi-selected boxes:', multiSelectedBoxes);
+    
+    if (isCurrentlySelected) {
+        // Remove from selection
+        multiSelectedBoxes = multiSelectedBoxes.filter(i => i !== index);
+        bbox.removeClass('multi-selected selected');
+        $(`.bbox-item[data-index="${index}"]`).removeClass('selected');
+        console.log('Removed from selection');
+    } else {
+        // Add to selection
+        multiSelectedBoxes.push(index);
+        bbox.addClass('multi-selected');
+        $(`.bbox-item[data-index="${index}"]`).addClass('selected');
+        console.log('Added to selection');
+    }
+    
+    console.log('New multi-selected boxes:', multiSelectedBoxes);
+    
+    // Update selectedBboxes for compatibility with existing functions
+    selectedBboxes = [...multiSelectedBoxes];
+    updateSelectionCounter();
+    updatePropertiesPanel();
+}
+
+function selectBbox(index, multiSelect = false) {
+    if (!multiSelect) {
+        // Clear all selections
+        clearMultiSelection();
+        selectedBboxes = [index];
+        multiSelectedBoxes = [index];
+    } else {
+        // Add to existing selection
+        if (!selectedBboxes.includes(index)) {
+            selectedBboxes.push(index);
+            multiSelectedBoxes.push(index);
+        }
+    }
+    
+    // Update visual selection
+    updateVisualSelection();
+    updateSelectionCounter();
+    updatePropertiesPanel();
+}
+
+function clearMultiSelection() {
+    console.log('clearMultiSelection called - clearing', multiSelectedBoxes.length, 'boxes');
+    console.trace('clearMultiSelection call stack');
+    
+    multiSelectedBoxes = [];
+    selectedBboxes = [];
+    $('.bbox-overlay').removeClass('selected multi-selected');
+    $('.bbox-item').removeClass('selected');
+    updateSelectionCounter();
+}
+
+function finalizeMultiSelection() {
+    // Update selectedBboxes for compatibility
+    selectedBboxes = [...multiSelectedBoxes];
+    
+    // Update visual indicators
+    updateVisualSelection();
+}
+
+function updateVisualSelection() {
+    console.log('Updating visual selection for boxes:', multiSelectedBoxes);
+    
+    // Clear all visual selections first
+    $('.bbox-overlay').removeClass('selected multi-selected');
+    $('.bbox-item').removeClass('selected');
+    
+    // Apply selections
+    multiSelectedBoxes.forEach(index => {
+        const overlay = $(`.bbox-overlay[data-index="${index}"]`);
+        const listItem = $(`.bbox-item[data-index="${index}"]`);
+        
+        overlay.addClass('multi-selected');
+        listItem.addClass('selected');
+        
+        console.log(`Applied multi-selected to box ${index}:`, overlay.length > 0);
+    });
+}
+
+function selectAllBboxes() {
+    multiSelectedBoxes = [];
+    selectedBboxes = [];
+    
+    // Select all available bounding boxes
+    $('.bbox-overlay').each(function() {
+        const index = parseInt($(this).data('index'));
+        if (!isNaN(index)) {
+            multiSelectedBoxes.push(index);
+            selectedBboxes.push(index);
+        }
+    });
+    
+    updateVisualSelection();
+    updateSelectionCounter();
+    updatePropertiesPanel();
+}
+
+function updateSelectionCounter() {
+    const count = multiSelectedBoxes.length;
+    const countText = count === 0 ? '0 boxes selected' : 
+                     count === 1 ? '1 box selected' : 
+                     `${count} boxes selected`;
+    $('#selectionCount').text(countText);
+    
+    // Also update the console for debugging
+    console.log('Selection counter updated:', countText);
+}
+
+function moveReadingOrder(bboxIndex, direction) {
+    console.log(`Moving box ${bboxIndex} ${direction} in reading order`);
+    
+    // Find current position in reading order
+    const currentOrder = bboxData[bboxIndex].reading_order || bboxIndex + 1;
+    let newOrder;
+    
+    if (direction === 'up') {
+        newOrder = Math.max(1, currentOrder - 1);
+    } else {
+        newOrder = Math.min(bboxData.length, currentOrder + 1);
+    }
+    
+    // If no change needed, return
+    if (newOrder === currentOrder) return;
+    
+    // Find the box that currently has the target reading order
+    const targetBox = bboxData.find(box => (box.reading_order || bboxData.indexOf(box) + 1) === newOrder);
+    
+    if (targetBox) {
+        // Swap reading orders
+        const targetIndex = bboxData.indexOf(targetBox);
+        targetBox.reading_order = currentOrder;
+        bboxData[bboxIndex].reading_order = newOrder;
+        
+        console.log(`Swapped reading orders: box ${bboxIndex} (${currentOrder} -> ${newOrder}), box ${targetIndex} (${newOrder} -> ${currentOrder})`);
+    } else {
+        // Just set the new reading order
+        bboxData[bboxIndex].reading_order = newOrder;
+    }
+    
+    // Update visual elements
+    updateReadingOrderNumbers();
+    updateBboxList();
+    
+    // Save changes
+    autoSave();
+}
+
+function updateReadingOrderNumbers() {
+    $('.bbox-overlay').each(function() {
+        const index = parseInt($(this).data('index'));
+        const bbox = bboxData[index];
+        const readingOrder = bbox.reading_order || index + 1;
+        
+        $(this).find('.reading-order-number').text(readingOrder);
+    });
+}
+
 // Remove old markdown textarea reference - now handled in updateMarkdownFromText()
 
 // Keyboard shortcuts
@@ -1454,7 +1875,7 @@ $(document).keydown(function(e) {
         case 's':
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
-                saveFile();
+                autoSave();
             }
             break;
         case '1':
@@ -1481,15 +1902,30 @@ $(document).keydown(function(e) {
                 $('#viewer-tab').click();
             }
             break;
+        case 'a':
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                selectAllBboxes();
+            }
+            break;
+        case 'Escape':
+            clearMultiSelection();
+            updatePropertiesPanel();
+            break;
     }
 });
 
 // Click outside to deselect
 $(document).click(function(e) {
-    if (!$(e.target).closest('.bbox-overlay, .bbox-item').length) {
-        selectedBboxes = [];
-        $('.bbox-overlay').removeClass('selected');
-        $('.bbox-item').removeClass('selected');
+    // Don't clear selection if we just finished a drag operation
+    if (justFinishedDrag) {
+        justFinishedDrag = false;
+        return;
+    }
+    
+    if (!$(e.target).closest('.bbox-overlay, .bbox-item, .selection-box, #imageContainer').length && !isSelecting) {
+        console.log('Clicking outside - clearing selection');
+        clearMultiSelection();
         updatePropertiesPanel();
     }
 });

@@ -239,6 +239,75 @@
         .tab-content {
             margin-top: 1rem;
         }
+        .selection-box {
+            position: absolute;
+            border: 2px dashed #007bff;
+            background-color: rgba(0, 123, 255, 0.1);
+            pointer-events: none;
+            z-index: 1000;
+        }
+        .bbox-overlay.multi-selected {
+            border-color: #28a745;
+            background-color: rgba(40, 167, 69, 0.2);
+            box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.5);
+        }
+        .image-container {
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+        .reading-order-number {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            z-index: 1001;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        .reading-order-controls {
+            position: absolute;
+            top: -8px;
+            right: 15px;
+            display: flex;
+            flex-direction: column;
+            z-index: 1002;
+        }
+        .reading-order-btn {
+            background-color: rgba(0, 123, 255, 0.9);
+            color: white;
+            border: none;
+            width: 16px;
+            height: 12px;
+            font-size: 8px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 1px 0;
+            border-radius: 2px;
+            transition: background-color 0.2s;
+        }
+        .reading-order-btn:hover {
+            background-color: rgba(0, 123, 255, 1);
+        }
+        .reading-order-btn:first-child {
+            border-radius: 2px 2px 0 0;
+        }
+        .reading-order-btn:last-child {
+            border-radius: 0 0 2px 2px;
+        }
         .markdown-section-card {
             margin-bottom: 1rem;
             border: 1px solid #dee2e6;
