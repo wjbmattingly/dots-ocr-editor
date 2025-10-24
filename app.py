@@ -174,6 +174,10 @@ def get_available_files(data_dir):
                             rel_json_path = os.path.relpath(json_path, data_dir)
                             rel_image_path = os.path.relpath(image_path, data_dir)
                             
+                            # Normalize paths to use forward slashes (works on both Windows and Unix)
+                            rel_json_path = rel_json_path.replace('\\', '/')
+                            rel_image_path = rel_image_path.replace('\\', '/')
+                            
                             if folder_name not in files_by_folder:
                                 files_by_folder[folder_name] = []
                             
@@ -241,10 +245,12 @@ def load_file():
         })
     
     # Fall back to loading from file system
-    full_path = os.path.join(config['data_dir'], file_path)
+    # Convert forward slashes to OS-appropriate separators
+    normalized_path = file_path.replace('/', os.sep)
+    full_path = os.path.join(config['data_dir'], normalized_path)
     
     if not os.path.exists(full_path):
-        return jsonify({'error': 'File not found'}), 404
+        return jsonify({'error': f'File not found: {full_path}'}), 404
     
     try:
         with open(full_path, 'r') as f:
@@ -291,7 +297,9 @@ def save_file():
         # Optionally save to filesystem
         if save_to_filesystem:
             config = load_config()
-            full_path = os.path.join(config['data_dir'], file_path)
+            # Convert forward slashes to OS-appropriate separators
+            normalized_path = file_path.replace('/', os.sep)
+            full_path = os.path.join(config['data_dir'], normalized_path)
             
             # Remove temporary IDs and reading_order before saving to file
             clean_data = []
@@ -407,13 +415,15 @@ def serve_image(filename):
         return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
     
     # Otherwise serve from data directory
-    data_path = os.path.join(config['data_dir'], filename)
+    # Convert forward slashes to OS-appropriate separators
+    normalized_filename = filename.replace('/', os.sep)
+    data_path = os.path.join(config['data_dir'], normalized_filename)
     if os.path.exists(data_path):
         directory = os.path.dirname(data_path)
-        filename = os.path.basename(data_path)
-        return send_from_directory(directory, filename)
+        basename = os.path.basename(data_path)
+        return send_from_directory(directory, basename)
     
-    return "Image not found", 404
+    return f"Image not found: {data_path}", 404
 
 @app.route('/api/validate_page', methods=['POST'])
 def validate_page():
@@ -552,6 +562,24 @@ def get_folders():
         return jsonify(files_by_folder)
     except Exception as e:
         return jsonify({'error': f'Error getting folders: {str(e)}'}), 500
+
+@app.route('/api/clear_database', methods=['POST'])
+def clear_database():
+    """Clear all data from the database (useful when moving between platforms)"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM validation_log')
+        cursor.execute('DELETE FROM exports_log')
+        cursor.execute('DELETE FROM pages')
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Database cleared successfully'})
+    except Exception as e:
+        return jsonify({'error': f'Error clearing database: {str(e)}'}), 500
 
 @app.route('/api/stats')
 def get_stats():
