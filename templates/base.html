@@ -507,7 +507,10 @@
     function loadPage(jsonPath, imagePath) {
         // Update active page
         document.querySelectorAll('.page-item').forEach(p => p.classList.remove('active'));
-        document.querySelector(`[data-json-path="${jsonPath}"]`).classList.add('active');
+        const pageElement = document.querySelector(`[data-json-path="${jsonPath}"]`);
+        if (pageElement) {
+            pageElement.classList.add('active');
+        }
         
         // Navigate to editor or update current page
         if (window.location.pathname === '/editor') {
