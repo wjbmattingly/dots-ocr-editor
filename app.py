@@ -133,7 +133,7 @@ LAYOUT_CATEGORIES = [
 def load_config():
     """Load configuration from config.yaml"""
     try:
-        with open('config.yaml', 'r') as f:
+        with open('config.yaml', 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
         return config
     except FileNotFoundError:
@@ -253,7 +253,7 @@ def load_file():
         return jsonify({'error': f'File not found: {full_path}'}), 404
     
     try:
-        with open(full_path, 'r') as f:
+        with open(full_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         # Add unique IDs to each bounding box if not present
@@ -307,7 +307,7 @@ def save_file():
                 clean_item = {k: v for k, v in item.items() if k not in ['id']}
                 clean_data.append(clean_item)
             
-            with open(full_path, 'w') as f:
+            with open(full_path, 'w', encoding='utf-8') as f:
                 json.dump(clean_data, f, indent=2)
         
         return jsonify({'success': True, 'saved_to_db': True, 'saved_to_file': save_to_filesystem})
@@ -338,7 +338,7 @@ def upload_files():
         image_file.save(image_path)
         
         # Load and validate JSON
-        with open(json_path, 'r') as f:
+        with open(json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         # Add unique IDs and reading order
